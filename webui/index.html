@@ -560,6 +560,7 @@ $('btnSearch').onclick = async () => {
         <div class="song-actions">
           <button class="btn sm" data-id="${s.id}">获取</button>
           <button class="btn ghost sm" data-id="${s.id}" data-act="status">状态</button>
+          ${s.mid ? `<a class="btn ghost sm" href="https://y.qq.com/n/ryqq/songDetail/${s.mid}" target="_blank" rel="noopener">QQ音乐 ▶</a>` : ''}
         </div>`;
       div.querySelector('[data-act="status"]').onclick = () => showStatus(s.id);
       div.querySelector('.btn:not([data-act])').onclick = () => crawl(s.id, 'auto');

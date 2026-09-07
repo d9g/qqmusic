@@ -57,6 +57,24 @@ def _unescape(s: Any) -> str:
     return html.unescape(s).strip()
 
 
+def _json(resp) -> Dict[str, Any]:
+    """
+    编码安全的 JSON 解析。
+
+    实测: fcg_get_diss_by_tag / fcg_get_diss_tag_conf 返回 GBK 编码 JSON
+    (不带 outCharset 时 QQ 默认 GBK 输出), 其余接口多为 UTF-8。
+    requests 的 resp.json() 按响应头猜测编码, 对这些接口会解出乱码。
+    这里按 utf-8 严格解码失败则回退 GBK, 兼容两种接口。
+    """
+    raw = resp.content
+    for enc in ("utf-8", "gbk"):
+        try:
+            return json.loads(raw.decode(enc))
+        except (UnicodeDecodeError, json.JSONDecodeError):
+            continue
+    return json.loads(raw.decode("utf-8", "ignore"))
+
+
 def _gtk(p_skey: str) -> int:
     """QQ g_tk 算法: 由 p_skey cookie 计算"""
     h = 5381
@@ -84,8 +102,7 @@ class QQBrowseSpider(BaseSpider):
             return self._cat_cache
         params = {**_BASE}
         resp = self.session.get(_CAT_URL, params=params, timeout=self.timeout)
-        resp.encoding = "utf-8"
-        data = resp.json()
+        data = _json(resp)
         groups = []
         for grp in (data.get("data", {}).get("categories") or []):
             gname = _unescape(grp.get("categoryGroupName", ""))
@@ -122,8 +139,7 @@ class QQBrowseSpider(BaseSpider):
             "sum": str(size),
         }
         resp = self.session.get(_LIST_URL, params=params, timeout=self.timeout)
-        resp.encoding = "utf-8"
-        data = resp.json().get("data", {})
+        data = _json(resp).get("data", {})
         out = []
         for p in data.get("list", []) or []:
             creator = p.get("creator") or {}
@@ -198,24 +214,63 @@ class QQBrowseSpider(BaseSpider):
             "data": json.dumps(data, separators=(",", ":")),
         }
         resp = self.session.get(_TOPLIST_URL, params=params, timeout=self.timeout)
-        resp.encoding = "utf-8"
-        dd = resp.json().get("detail", {}).get("data", {}).get("data", {})
+        dd = _json(resp).get("detail", {}).get("data", {}).get("data", {})
         songs = []
         for i, s in enumerate(dd.get("song", []) or []):
             songs.append({
                 "rank": s.get("rank", i + 1),
                 "songid": int(s.get("songId") or 0),
-                "songmid": s.get("mid") or s.get("singerMid") or "",
+                "songmid": s.get("mid") or "",
                 "name": _unescape(s.get("title", "")),
                 "singer": _unescape(s.get("singerName", "")),
                 "cover": s.get("cover", ""),
             })
+        # 榜单接口只返回 songId 不返回歌曲 mid (singerMid 是歌手的, 误用必 404)。
+        # 用 musicu.fcg 批量请求一次性反查 songid -> songmid, 供前端生成播放链接。
+        mids = self._lookup_songmids([s["songid"] for s in songs])
+        for s in songs:
+            if not s["songmid"] and s["songid"] in mids:
+                s["songmid"] = mids[s["songid"]]
         return {
             "top_id": top_id,
             "title": _unescape(dd.get("title", TOPLISTS.get(top_id, ""))),
             "period": dd.get("period", ""),
             "songs": songs,
         }
+
+    def _lookup_songmids(self, song_ids: List[int]) -> Dict[int, str]:
+        """songid -> songmid 批量反查。musicu.fcg 一次请求可携带多个 module key。"""
+        out: Dict[int, str] = {}
+        ids = [int(x) for x in song_ids if x]
+        if not ids:
+            return out
+        # 单次请求最多 60 个 key, 防止 URL 过长
+        for chunk_start in range(0, len(ids), 60):
+            chunk = ids[chunk_start:chunk_start + 60]
+            data: Dict[str, Any] = {"comm": {"ct": 24, "cv": 0}}
+            for i, sid in enumerate(chunk):
+                data[f"detail{i}"] = {
+                    "module": "music.pf_song_detail_svr",
+                    "method": "get_song_detail",
+                    "param": {"song_id": sid},
+                }
+            params = {
+                "-": "getU", **_BASE,
+                "data": json.dumps(data, separators=(",", ":")),
+            }
+            try:
+                resp = self.session.get(
+                    _TOPLIST_URL, params=params, timeout=self.timeout
+                )
+                d = _json(resp)
+            except Exception as e:
+                self.logger.warning(f"songmid 批量反查失败 (仅影响播放链接): {e}")
+                return out
+            for i, sid in enumerate(chunk):
+                ti = (d.get(f"detail{i}") or {}).get("data", {}).get("track_info") or {}
+                if ti.get("mid"):
+                    out[sid] = ti["mid"]
+        return out
 
     # -------------------- 登录用户歌单 (需 cookie) --------------------
     def get_my_playlists(self, cookie: str) -> Dict[str, Any]:
