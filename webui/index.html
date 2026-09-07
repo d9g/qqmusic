@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>QQ 音乐评论分析 · qq.d9g.com.cn</title>
+<title>QQ 音乐评论 · 检索 · AI 情感分析</title>
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
 <style>
   :root {
@@ -73,11 +73,11 @@
   .card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 18px; }
   .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
   .row.tight { gap: 8px; }
-  input[type=text], input[type=number], select {
+  input[type=text], input[type=number], select, textarea {
     padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
     font-family: inherit; background: #fff; color: var(--text); min-width: 0;
   }
-  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--accent); }
   input[type=text] { flex: 1; min-width: 180px; }
   .btn {
     padding: 9px 16px; border: none; border-radius: 8px; background: var(--accent); color: #fff;
@@ -137,6 +137,37 @@
   footer a { color: var(--accent-d); text-decoration: none; }
   .empty { text-align: center; color: var(--muted); padding: 30px; font-size: 13px; }
   .loading { opacity: .6; pointer-events: none; }
+
+  /* ---- 浏览 / 排行 新增样式 ---- */
+  .cat-group { margin-top: 16px; }
+  .cat-group .grp-name { font-size: 12px; color: var(--muted); font-weight: 600; margin-bottom: 6px; }
+  .cat-row { display: flex; flex-wrap: wrap; gap: 8px; }
+  .cat-chip { padding: 6px 13px; border: 1px solid var(--border); border-radius: 20px; font-size: 13px; cursor: pointer; background: #fff; transition: .12s; }
+  .cat-chip:hover { border-color: var(--accent); color: var(--accent-d); }
+  .cat-chip.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .pl-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px,1fr)); gap: 14px; margin-top: 14px; }
+  .pl-card { border: 1px solid var(--border); border-radius: 10px; overflow: hidden; cursor: pointer; background: #fff; transition: .15s; }
+  .pl-card:hover { box-shadow: var(--shadow); border-color: var(--accent); transform: translateY(-2px); }
+  .pl-card img { width: 100%; height: 150px; object-fit: cover; display: block; background: #eee; }
+  .pl-card .pl-name { padding: 8px 10px; font-size: 13px; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .pl-card .pl-meta { padding: 0 10px 8px; font-size: 11px; color: var(--muted); }
+
+  .rank-item { display: flex; gap: 12px; align-items: center; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; margin-top: 8px; }
+  .rank-no { font-size: 18px; font-weight: 700; color: var(--accent-d); width: 30px; text-align: center; flex-shrink: 0; }
+  .rank-body { flex: 1; min-width: 0; }
+  .rank-body .name { font-weight: 600; }
+  .rank-body .sub { font-size: 12px; color: var(--muted); }
+
+  .tabs { display: flex; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .tabs button { padding: 6px 14px; border: 1px solid var(--border); background: #fff; border-radius: 8px; cursor: pointer; font-size: 13px; font-family: inherit; }
+  .tabs button.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+
+  .cookie-box { width: 100%; min-height: 64px; font-family: monospace; font-size: 12px; resize: vertical; }
+  .crumb { font-size: 12px; color: var(--muted); margin-bottom: 10px; }
+  .crumb a { color: var(--accent-d); cursor: pointer; }
+  .back-btn { margin-bottom: 12px; }
+  .listen-num::before { content: "▶ "; }
 </style>
 </head>
 <body>
@@ -145,7 +176,7 @@
     <div class="logo">Q</div>
     <div>
       <h1>QQ 音乐评论分析</h1>
-      <p>评论抓取 · 检索 · AI 情感分析 · qq.d9g.com.cn</p>
+      <p>评论 · 检索 · AI 情感分析</p>
     </div>
   </div>
   <div class="health-pill" id="healthPill"><span class="dot"></span><span id="healthText">检测中…</span></div>
@@ -153,7 +184,9 @@
 
 <nav>
   <button data-view="overview" class="active">概览</button>
-  <button data-view="crawl">搜歌 & 抓取</button>
+  <button data-view="browse">浏览</button>
+  <button data-view="ranking">排行榜</button>
+  <button data-view="crawl">搜歌</button>
   <button data-view="comments">评论检索</button>
   <button data-view="emotion">情感分析</button>
   <button data-view="admin">系统管理</button>
@@ -174,8 +207,8 @@
       <h3 class="section-title">系统能力</h3>
       <div class="row" style="gap:18px; flex-wrap:wrap;">
         <div style="flex:1; min-width:220px;">
-          <p style="margin:0 0 6px; font-weight:600;">🔍 评论抓取</p>
-          <p class="hint" style="margin:0;">无需登录，单歌可抓约 2 万条；支持断点续传与增量更新，崩溃不丢进度。</p>
+          <p style="margin:0 0 6px; font-weight:600;">🔍 评论</p>
+          <p class="hint" style="margin:0;">无需登录，单歌评论约 2 万条；支持断点续传与增量更新，崩溃不丢进度。</p>
         </div>
         <div style="flex:1; min-width:220px;">
           <p style="margin:0 0 6px; font-weight:600;">🏷️ 水评打标</p>
@@ -189,20 +222,72 @@
     </div>
   </section>
 
-  <!-- ============ 搜歌 & 抓取 ============ -->
+  <!-- ============ 浏览 / 发现 ============ -->
+  <section class="view" id="view-browse">
+    <h2 class="section-title">浏览 · 发现 <small>QQ 音乐分类歌单 / 榜单 → 歌曲清单 → 一键抓评论</small></h2>
+
+    <div class="card">
+      <h3 class="section-title">我的歌单 <small>可选 · 粘贴 QQ 音乐网页 cookie 读取登录用户的歌单</small></h3>
+      <details>
+        <summary style="cursor:pointer; color:var(--accent-d); font-size:13px;">展开登录</summary>
+        <p class="hint" style="margin-top:8px;">浏览器打开 y.qq.com 登录 → F12 → Console 输入 <code>document.cookie</code> → 复制整段粘贴下方。仅存于服务器，不进代码仓库。</p>
+        <textarea class="cookie-box" id="myCookie" placeholder="粘贴 cookie，如 qm_keyst=...; uin=...; p_skey=...; ..."></textarea>
+        <div class="row" style="margin-top:8px;">
+          <button class="btn sm" id="btnMyDiss">读取我的歌单</button>
+        </div>
+        <div id="myDissList"></div>
+      </details>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">分类歌单 <small>热门歌单 / 情歌 / 网络歌曲 / 经典 / KTV热歌 …</small></h3>
+      <div id="catTree"><div class="empty">加载分类中…</div></div>
+      <div id="plArea" style="display:none;">
+        <div class="crumb"><a id="backCats">← 返回分类</a> <span id="plCrumb"></span></div>
+        <div class="pl-grid" id="plGrid"></div>
+      </div>
+      <div id="songArea" style="display:none;">
+        <div class="crumb"><a id="backPl">← 返回歌单</a> <span id="songCrumb"></span></div>
+        <div id="songList2"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 排行榜 ============ -->
+  <section class="view" id="view-ranking">
+    <h2 class="section-title">排行榜 <small>QQ 官方榜单 + 我们的排行中心</small></h2>
+
+    <div class="card">
+      <h3 class="section-title">QQ 音乐官方榜单</h3>
+      <div class="row tight" id="toplistTabs"><div class="empty">加载榜单中…</div></div>
+      <div id="toplistSongs" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">我们的排行中心 <small>基于已抓取的评论数据</small></h3>
+      <div class="tabs" id="ourRankTabs">
+        <button data-r="hot-songs" class="active">热门歌曲</button>
+        <button data-r="hot-comments">神评论</button>
+        <button data-r="high-quality">高质量评论</button>
+      </div>
+      <div id="ourRankBody"></div>
+    </div>
+  </section>
+
+  <!-- ============ 搜歌 ============ -->
   <section class="view" id="view-crawl">
-    <h2 class="section-title">搜歌 & 抓取 <small>搜索歌曲 → 一键抓取评论入库</small></h2>
+    <h2 class="section-title">搜歌 <small>搜索歌曲 → 一键获取评论入库</small></h2>
     <div class="card">
       <div class="row">
         <input type="text" id="kw" placeholder="输入歌名或歌手，如：孤勇者" />
         <button class="btn" id="btnSearch">搜索</button>
       </div>
-      <div class="hint">搜索返回 songid，点击「抓取」即按 auto 模式入库（已抓全的歌自动走增量）。</div>
+      <div class="hint">搜索返回 songid，点击「获取」即按 auto 模式入库（已获取的歌自动走增量）。</div>
       <div id="songList"></div>
     </div>
 
     <div class="card">
-      <h3 class="section-title">按 songid 直接抓取</h3>
+      <h3 class="section-title">按 songid 直接获取</h3>
       <div class="row">
         <input type="number" id="sid" placeholder="songid" style="width:160px;" />
         <select id="mode">
@@ -211,7 +296,7 @@
           <option value="incremental">incremental（增量）</option>
           <option value="restart">restart（从头）</option>
         </select>
-        <button class="btn" id="btnCrawl">抓取</button>
+        <button class="btn" id="btnCrawl">获取</button>
         <button class="btn ghost" id="btnStatus">查状态</button>
       </div>
       <div id="crawlResult" class="result-box"></div>
@@ -313,18 +398,55 @@ const fmtTime = (sec) => {
   const d = new Date(sec * 1000);
   return d.toLocaleString('zh-CN', { hour12: false });
 };
-const singerStr = (s) => (Array.isArray(s) && s.length ? s.map(x => x.name).join(' / ') : '未知歌手');
+const fmtNum = (n) => {
+  n = Number(n) || 0;
+  if (n >= 100000000) return (n/100000000).toFixed(1) + '亿';
+  if (n >= 10000) return (n/10000).toFixed(1) + '万';
+  return String(n);
+};
+const singerStr = (s) => (Array.isArray(s) && s.length ? s.map(x => x.name || x).join(' / ') : (typeof s === 'string' ? s : '未知歌手'));
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+const songPlayUrl = (s) => s.songmid ? `https://y.qq.com/n/ryqq/songDetail/${s.songmid}` : `https://y.qq.com/portal/song.html?songid=${s.songid}`;
+
+const songActionsHtml = (s) => `
+  <div class="song-actions">
+    <button class="btn sm" data-get="${s.songid}">获取评论</button>
+    <button class="btn ghost sm" data-viewc="${s.songid}">已抓评论</button>
+    <a class="btn ghost sm" href="${songPlayUrl(s)}" target="_blank" rel="noopener">QQ音乐 ▶</a>
+  </div>`;
+
+function bindSongActions(root) {
+  root.querySelectorAll('[data-get]').forEach(b => {
+    b.onclick = () => {
+      const id = b.dataset.get;
+      $('sid').value = id;
+      switchView('crawl');
+      crawl(id, $('mode').value);
+    };
+  });
+  root.querySelectorAll('[data-viewc]').forEach(b => {
+    b.onclick = () => {
+      $('f-sid').value = b.dataset.viewc;
+      switchView('comments');
+      searchComments(true);
+    };
+  });
+}
 
 // ---- 导航 ----
+function switchView(name) {
+  document.querySelectorAll('nav button').forEach(x => x.classList.remove('active'));
+  document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+  const btn = document.querySelector(`nav button[data-view="${name}"]`);
+  if (btn) btn.classList.add('active');
+  $('view-' + name).classList.add('active');
+  if (name === 'overview') loadStats();
+  if (name === 'emotion') loadEmotion();
+  if (name === 'browse') loadCategories();
+  if (name === 'ranking') { loadToplists(); loadOurRankings('hot-songs'); }
+}
 document.querySelectorAll('nav button').forEach(b => {
-  b.onclick = () => {
-    document.querySelectorAll('nav button').forEach(x => x.classList.remove('active'));
-    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
-    b.classList.add('active');
-    $('view-' + b.dataset.view).classList.add('active');
-    if (b.dataset.view === 'overview') loadStats();
-    if (b.dataset.view === 'emotion') loadEmotion();
-  };
+  b.onclick = () => switchView(b.dataset.view);
 });
 
 // ---- 健康检查 ----
@@ -371,7 +493,7 @@ $('btnSearch').onclick = async () => {
           <div class="singer">${esc(singerStr(s.singer))} ${dur ? '· ' + dur : ''}</div>
         </div>
         <div class="song-actions">
-          <button class="btn sm" data-id="${s.id}">抓取</button>
+          <button class="btn sm" data-id="${s.id}">获取</button>
           <button class="btn ghost sm" data-id="${s.id}" data-act="status">状态</button>
         </div>`;
       div.querySelector('[data-act="status"]').onclick = () => showStatus(s.id);
@@ -381,7 +503,7 @@ $('btnSearch').onclick = async () => {
   } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
 };
 
-// ---- 抓取 ----
+// ---- 获取 (抓取) ----
 async function crawl(id, mode) {
   const box = $('crawlResult'); const msg = $('crawlMsg');
   box.className = 'result-box show loading'; msg.className = 'msg';
@@ -389,7 +511,7 @@ async function crawl(id, mode) {
     const r = await api('/api/v1/crawl/comment/' + id + '?mode=' + mode, { method: 'POST' });
     box.classList.remove('loading');
     box.textContent = JSON.stringify(r, null, 2);
-    showMsg(msg, `✅ 抓取完成：标称 ${r.total} 条，新增 ${r.saved} 条，${r.pages} 页，模式 ${r.mode}，原因 ${r.stop_reason}`, 'ok');
+    showMsg(msg, `✅ 获取完成：标称 ${r.total} 条，新增 ${r.saved} 条，${r.pages} 页，模式 ${r.mode}，原因 ${r.stop_reason}`, 'ok');
     loadStats();
   } catch (e) {
     box.classList.remove('loading');
@@ -409,8 +531,8 @@ async function showStatus(id) {
     const r = await api('/api/v1/crawl/status/' + id);
     box.classList.remove('loading');
     box.textContent = JSON.stringify(r, null, 2);
-    if (r.crawled) showMsg(msg, `已抓过：入库 ${r.comments_fetched} 条（水评 ${r.trivial_fetched}），下次 auto 走 ${r.next_mode}`, 'info');
-    else showMsg(msg, '该 songid 尚未抓取', 'info');
+    if (r.crawled) showMsg(msg, `已获取：入库 ${r.comments_fetched} 条（水评 ${r.trivial_fetched}），下次 auto 走 ${r.next_mode}`, 'info');
+    else showMsg(msg, '该 songid 尚未获取', 'info');
   } catch (e) { box.classList.remove('loading'); showMsg(msg, '❌ ' + e.message, 'err'); }
 }
 $('btnStatus').onclick = () => {
@@ -523,9 +645,207 @@ $('btnAnalyze').onclick = async () => {
   } catch (e) { box.classList.remove('loading'); box.textContent = '错误：' + e.message; }
 };
 
-// ---- 工具 ----
-function esc(s) {
-  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+// ==================== 浏览 / 发现 ====================
+async function loadCategories() {
+  const box = $('catTree');
+  if (box.dataset.loaded) return;
+  try {
+    const r = await api('/api/v1/browse/categories');
+    box.dataset.loaded = '1';
+    box.innerHTML = '';
+    r.groups.forEach(g => {
+      const gd = document.createElement('div');
+      gd.className = 'cat-group';
+      gd.innerHTML = `<div class="grp-name">${esc(g.group)}</div>`;
+      const row = document.createElement('div');
+      row.className = 'cat-row';
+      g.items.forEach(it => {
+        const chip = document.createElement('span');
+        chip.className = 'cat-chip';
+        chip.textContent = it.name;
+        chip.onclick = () => {
+          document.querySelectorAll('#catTree .cat-chip').forEach(c => c.classList.remove('active'));
+          chip.classList.add('active');
+          loadPlaylists(it.id, it.name);
+        };
+        row.appendChild(chip);
+      });
+      gd.appendChild(row);
+      box.appendChild(gd);
+    });
+  } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
+}
+
+async function loadPlaylists(categoryId, name) {
+  $('catTree').style.display = 'none';
+  $('plArea').style.display = 'block';
+  $('songArea').style.display = 'none';
+  $('plCrumb').textContent = ' / ' + name;
+  const grid = $('plGrid');
+  grid.innerHTML = '<div class="empty">加载歌单中…</div>';
+  try {
+    const r = await api('/api/v1/browse/playlists?category_id=' + categoryId + '&size=30');
+    if (!r.playlists.length) { grid.innerHTML = '<div class="empty">该分类暂无歌单</div>'; return; }
+    grid.innerHTML = '';
+    r.playlists.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'pl-card';
+      const cover = p.cover ? `<img src="${esc(p.cover)}" loading="lazy" />` : '<div style="height:150px;background:#eee;"></div>';
+      card.innerHTML = `
+        ${cover}
+        <div class="pl-name">${esc(p.name)}</div>
+        <div class="pl-meta">${esc(p.creator || 'QQ音乐')} · <span class="listen-num">${fmtNum(p.listen_num)}</span></div>`;
+      card.onclick = () => loadPlaylist(p.dissid, p.name);
+      grid.appendChild(card);
+    });
+  } catch (e) { grid.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
+}
+
+$('backCats').onclick = () => {
+  $('plArea').style.display = 'none';
+  $('songArea').style.display = 'none';
+  $('catTree').style.display = 'block';
+};
+
+async function loadPlaylist(dissid, name) {
+  $('plArea').style.display = 'none';
+  $('songArea').style.display = 'block';
+  $('songCrumb').textContent = ' / ' + (name || '歌单');
+  const box = $('songList2');
+  box.innerHTML = '<div class="empty">加载歌曲清单中…</div>';
+  try {
+    const r = await api('/api/v1/browse/playlist/' + dissid + '?song_num=100');
+    if (!r.songs.length) { box.innerHTML = '<div class="empty">歌单暂无歌曲</div>'; return; }
+    box.innerHTML = `<div class="hint">共 ${r.song_count} 首，展示前 ${r.songs.length} 首。点击「获取评论」入库，「已抓评论」查看已抓内容。</div>`;
+    r.songs.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'song-item';
+      div.innerHTML = `
+        <div class="meta">
+          <div class="name">${esc(s.name || '未知')}</div>
+          <div class="singer">${esc(singerStr(s.singer))} ${s.album ? '· ' + esc(s.album) : ''}</div>
+        </div>
+        ${songActionsHtml(s)}`;
+      box.appendChild(div);
+    });
+    bindSongActions(box);
+  } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
+}
+
+$('backPl').onclick = () => {
+  $('songArea').style.display = 'none';
+  $('plArea').style.display = 'block';
+};
+
+// 我的歌单 (登录)
+$('btnMyDiss').onclick = async () => {
+  const cookie = $('myCookie').value.trim();
+  const box = $('myDissList');
+  box.innerHTML = '<div class="empty">读取中…</div>';
+  try {
+    const r = await api('/api/v1/browse/my-playlists', { method: 'POST', body: { cookie } });
+    if (!r.playlists.length) { box.innerHTML = '<div class="empty">没有读到歌单（cookie 可能已失效）</div>'; return; }
+    box.innerHTML = `<div class="hint">共 ${r.count} 个歌单</div>`;
+    r.playlists.forEach(p => {
+      const card = document.createElement('div');
+      card.className = 'pl-card';
+      card.style.width = '160px';
+      const cover = p.cover ? `<img src="${esc(p.cover)}" loading="lazy" />` : '<div style="height:150px;background:#eee;"></div>';
+      card.innerHTML = `${cover}<div class="pl-name">${esc(p.name)}</div><div class="pl-meta">${p.song_count} 首</div>`;
+      card.onclick = () => loadPlaylist(p.dissid, p.name);
+      box.appendChild(card);
+    });
+  } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
+};
+
+// ==================== 排行榜 ====================
+async function loadToplists() {
+  const tabs = $('toplistTabs');
+  try {
+    const r = await api('/api/v1/browse/toplists');
+    tabs.innerHTML = '';
+    r.toplists.forEach((t, i) => {
+      const b = document.createElement('button');
+      b.textContent = t.name;
+      b.className = i === 0 ? 'active' : '';
+      b.onclick = () => {
+        tabs.querySelectorAll('button').forEach(x => x.classList.remove('active'));
+        b.classList.add('active');
+        loadToplist(t.id);
+      };
+      tabs.appendChild(b);
+    });
+    if (r.toplists.length) loadToplist(r.toplists[0].id);
+  } catch (e) { tabs.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
+}
+
+async function loadToplist(topId) {
+  const box = $('toplistSongs');
+  box.innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    const r = await api('/api/v1/browse/toplist/' + topId + '?num=50');
+    if (!r.songs.length) { box.innerHTML = '<div class="empty">榜单暂无数据</div>'; return; }
+    box.innerHTML = `<div class="hint">${esc(r.title)} · ${esc(r.period || '')}</div>`;
+    r.songs.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'song-item';
+      const sm = s.songmid ? { songid: s.songid, songmid: s.songmid } : { songid: s.songid };
+      div.innerHTML = `
+        <div class="meta">
+          <div class="name">${s.rank}. ${esc(s.name || '未知')}</div>
+          <div class="singer">${esc(s.singer || '未知歌手')}</div>
+        </div>
+        ${songActionsHtml(sm)}`;
+      box.appendChild(div);
+    });
+    bindSongActions(box);
+  } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
+}
+
+$('ourRankTabs').querySelectorAll('button').forEach(b => {
+  b.onclick = () => {
+    $('ourRankTabs').querySelectorAll('button').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    loadOurRankings(b.dataset.r);
+  };
+});
+
+async function loadOurRankings(type) {
+  const box = $('ourRankBody');
+  box.innerHTML = '<div class="empty">加载中…</div>';
+  try {
+    const map = { 'hot-songs': '/api/v1/rankings/hot-songs', 'hot-comments': '/api/v1/rankings/hot-comments', 'high-quality': '/api/v1/rankings/high-quality?min_score=4' };
+    const r = await api(map[type]);
+    if (!r.songs && !r.comments) { box.innerHTML = '<div class="empty">暂无数据，先去获取几首歌的评论吧</div>'; return; }
+    box.innerHTML = '';
+    if (type === 'hot-songs') {
+      r.songs.forEach(s => {
+        const div = document.createElement('div');
+        div.className = 'rank-item';
+        div.innerHTML = `
+          <div class="rank-no">${s.rank}</div>
+          <div class="rank-body">
+            <div class="name">${esc(s.name || '未知')}</div>
+            <div class="sub">${esc(singerStr(s.singer))} · 评论 ${fmtNum(s.comment_total)} · 赞 ${fmtNum(s.liked_total)}</div>
+          </div>
+          ${songActionsHtml({ songid: s.id, songmid: s.mid })}`;
+        box.appendChild(div);
+      });
+      bindSongActions(box);
+    } else {
+      r.comments.forEach(c => {
+        const div = document.createElement('div');
+        div.className = 'rank-item';
+        div.innerHTML = `
+          <div class="rank-no">${c.rank}</div>
+          <div class="rank-body">
+            <div class="name">${esc(c.content || '')}</div>
+            <div class="sub">${esc(c.song_name || '')} · ${esc(c.user_nickname || '匿名')} · ♥ ${c.liked_count || 0}${c.ai_emotion ? ' · ' + esc(c.ai_emotion) : ''}</div>
+          </div>`;
+        box.appendChild(div);
+      });
+    }
+  } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
 }
 
 // ---- 初始化 ----

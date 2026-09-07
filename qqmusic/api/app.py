@@ -14,14 +14,14 @@ from typing import Dict, List, Optional
 from fastapi import FastAPI, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
-from sqlalchemy import select, func, and_
+from sqlalchemy import select, func, and_, desc
 
-from ..spiders import CommentSpider, SearchSpider
+from ..spiders import CommentSpider, SearchSpider, QQBrowseSpider
 from ..storage import get_session, init_db, Song, Comment, SongCrawlStatus
 from ..utils import (
     get_logger, now_cst, clean_content, is_trivial, analyze_quality,
 )
-from ..utils.constants import MAX_PAGE_SIZE, INCREMENTAL_STOP_PAGES
+from ..utils.constants import MAX_PAGE_SIZE, INCREMENTAL_STOP_PAGES, DATA_DIR
 
 logger = get_logger("qqmusic.api")
 
@@ -515,6 +515,190 @@ def analyze_comments(
     return analyzer.analyze_pending(
         limit=limit, min_liked=min_liked, skip_trivial=skip_trivial
     )
+
+
+# ==================== 浏览 / 发现 ====================
+_COOKIE_PATH = os.path.join(DATA_DIR, ".qq_cookie")
+
+
+@app.get("/api/v1/browse/categories", tags=["浏览"])
+def browse_categories():
+    """QQ 音乐分类树 (语种/风格/主题/心情/场景)"""
+    tree = QQBrowseSpider().safe_fetch_category_tree()
+    if tree is None:
+        raise HTTPException(status_code=502, detail="分类接口调用失败")
+    return tree
+
+
+@app.get("/api/v1/browse/playlists", tags=["浏览"])
+def browse_playlists(
+    category_id: int = Query(..., description="分类 id (来自 /browse/categories)"),
+    page: int = Query(0, ge=0),
+    sort: int = Query(5, description="5=最热 其它见分类 allsorts"),
+    size: int = Query(30, ge=1, le=50),
+):
+    """按分类列出歌单"""
+    r = QQBrowseSpider().safe_fetch_playlists(category_id, page=page, sort=sort, size=size)
+    if r is None:
+        raise HTTPException(status_code=502, detail="歌单列表接口调用失败")
+    return r
+
+
+@app.get("/api/v1/browse/playlist/{dissid}", tags=["浏览"])
+def browse_playlist(dissid: str, song_num: int = Query(100, ge=1, le=300)):
+    """歌单详情: 返回歌曲清单 (每行带 songid 供抓评论)"""
+    r = QQBrowseSpider().safe_fetch_playlist_detail(dissid, song_num=song_num)
+    if r is None:
+        raise HTTPException(status_code=502, detail="歌单详情接口调用失败")
+    return r
+
+
+@app.get("/api/v1/browse/toplists", tags=["浏览"])
+def browse_toplists():
+    """官方榜单目录 (topId -> 名称, 均为实测可用)"""
+    from ..spiders.browse import TOPLISTS
+    return {"toplists": [{"id": k, "name": v} for k, v in TOPLISTS.items()]}
+
+
+@app.get("/api/v1/browse/toplist/{top_id}", tags=["浏览"])
+def browse_toplist(top_id: int, num: int = Query(50, ge=1, le=100)):
+    """官方榜单歌曲 (topId 见 /browse/toplists)"""
+    try:
+        r = QQBrowseSpider().safe_fetch_toplist(top_id, num=num)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if r is None:
+        raise HTTPException(status_code=502, detail="榜单接口调用失败")
+    return r
+
+
+class CookieBody(BaseModel):
+    cookie: str = ""
+
+
+@app.post("/api/v1/browse/my-playlists", tags=["浏览"])
+def browse_my_playlists(payload: CookieBody):
+    """
+    用登录用户的 QQ 音乐 cookie 取「我的歌单」。
+
+    安全说明: cookie 仅保存在服务器 data/.qq_cookie, 不进代码仓库; 仅用于本次请求。
+    留空则复用上次保存的 cookie。cookie 失效会返回 401 友好提示。
+    """
+    cookie = (payload.cookie or "").strip()
+    if cookie:
+        try:
+            with open(_COOKIE_PATH, "w", encoding="utf-8") as f:
+                f.write(cookie)
+        except Exception:
+            pass
+    else:
+        try:
+            with open(_COOKIE_PATH, "r", encoding="utf-8") as f:
+                cookie = f.read().strip()
+        except Exception:
+            cookie = ""
+    if not cookie:
+        raise HTTPException(status_code=400, detail="请提供 QQ 音乐 cookie (首次使用)")
+    try:
+        r = QQBrowseSpider().get_my_playlists(cookie)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail=str(e))
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"获取失败: {e}")
+    return r
+
+
+# ==================== 我们的排行中心 (基于已入库数据) ====================
+@app.get("/api/v1/rankings/hot-songs", tags=["排行"])
+def ranking_hot_songs(limit: int = Query(20, ge=1, le=100)):
+    """热门歌曲排行: 按入库评论数排序"""
+    with session_scope() as s:
+        stmt = (
+            select(
+                Song.id, Song.name, Song.singer, Song.album_name, Song.mid,
+                func.count(Comment.id).label("real_comment_count"),
+                func.coalesce(func.sum(Comment.liked_count), 0).label("liked_total"),
+            )
+            .outerjoin(Comment, Comment.song_id == Song.id)
+            .group_by(Song.id, Song.name, Song.singer, Song.album_name, Song.mid)
+            .having(func.count(Comment.id) > 0)
+            .order_by(desc(func.count(Comment.id)))
+            .limit(limit)
+        )
+        rows = s.execute(stmt).all()
+        songs = [
+            {
+                "rank": i + 1,
+                "id": r[0],
+                "name": r[1],
+                "singer": r[2] or [],
+                "album_name": r[3],
+                "mid": r[4],
+                "comment_total": int(r[5] or 0),
+                "liked_total": int(r[6] or 0),
+            }
+            for i, r in enumerate(rows)
+        ]
+    return {"count": len(songs), "songs": songs}
+
+
+@app.get("/api/v1/rankings/hot-comments", tags=["排行"])
+def ranking_hot_comments(limit: int = Query(20, ge=1, le=100)):
+    """神评论排行: 按点赞数排序"""
+    with session_scope() as s:
+        stmt = (
+            select(Comment, Song.name)
+            .join(Song, Song.id == Comment.song_id)
+            .where(Comment.liked_count > 0)
+            .order_by(desc(Comment.liked_count))
+            .limit(limit)
+        )
+        rows = s.execute(stmt).all()
+        comments = [
+            {
+                "rank": i + 1,
+                "comment_id": c.comment_id,
+                "song_id": c.song_id,
+                "song_name": sn,
+                "user_nickname": c.user_nickname,
+                "content": c.content or "",
+                "liked_count": c.liked_count or 0,
+            }
+            for i, (c, sn) in enumerate(rows)
+        ]
+    return {"count": len(comments), "comments": comments}
+
+
+@app.get("/api/v1/rankings/high-quality", tags=["排行"])
+def ranking_high_quality(
+    min_score: int = Query(4, ge=0, le=5),
+    limit: int = Query(20, ge=1, le=100),
+):
+    """高质量评论排行: 按 AI 评分 (默认 >=4 星)"""
+    with session_scope() as s:
+        stmt = (
+            select(Comment, Song.name)
+            .join(Song, Song.id == Comment.song_id)
+            .where(Comment.ai_score >= min_score)
+            .order_by(desc(Comment.ai_score), desc(Comment.liked_count))
+            .limit(limit)
+        )
+        rows = s.execute(stmt).all()
+        comments = [
+            {
+                "rank": i + 1,
+                "comment_id": c.comment_id,
+                "song_id": c.song_id,
+                "song_name": sn,
+                "user_nickname": c.user_nickname,
+                "content": c.content or "",
+                "liked_count": c.liked_count or 0,
+                "ai_score": c.ai_score,
+                "ai_emotion": c.ai_emotion,
+            }
+            for i, (c, sn) in enumerate(rows)
+        ]
+    return {"count": len(comments), "comments": comments}
 
 
 # ==================== 统计 ====================

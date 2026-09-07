@@ -2,5 +2,6 @@
 from .base import BaseSpider
 from .comment import CommentSpider
 from .search import SearchSpider
+from .browse import QQBrowseSpider
 
-__all__ = ["BaseSpider", "CommentSpider", "SearchSpider"]
+__all__ = ["BaseSpider", "CommentSpider", "SearchSpider", "QQBrowseSpider"]
