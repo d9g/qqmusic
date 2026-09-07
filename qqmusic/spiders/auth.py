@@ -137,7 +137,9 @@ class QQAuthSpider(BaseSpider):
             "u1": _OAUTH_JUMP,
             "ptqrtoken": str(_ptqrtoken(entry["qrsig"])),
             "ptredirect": "0", "h": "1", "t": "1", "g": "1", "from_ui": "1",
-            "ptui_language": "2052", "fpinfo": "%3A%3A",
+            "ptui_language": "2052",
+            # 注意传原始值, requests 会编码成 %3A%3A; 传已编码值会双重编码导致 code=7
+            "fpinfo": "::",
             "loginfromqrcode": "1",
             "appid": _APPID, "daid": _DAID, "pt_3rd_aid": _PT_3RD_AID,
         }
