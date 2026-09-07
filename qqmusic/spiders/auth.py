@@ -147,8 +147,17 @@ class QQAuthSpider(BaseSpider):
             _QR_POLL, params=params, timeout=self.timeout,
             headers={"Referer": entry["xlogin_url"]},
         )
-        resp.encoding = "gbk"  # 消息是 GBK 编码 (二维码未失效。等)
-        m = _POLL_RE.search(resp.text or "")
+        # 响应编码实测为 UTF-8 (旧文档说 GBK, 两种都兼容: 哪份解出有效中文用哪份)
+        raw = resp.content
+        m = None
+        for text in (raw.decode("utf-8", "ignore"), raw.decode("gbk", "ignore")):
+            cand = _POLL_RE.search(text)
+            if cand and any(k in (cand.group(5) or "") for k in ("失效", "认证", "扫描", "扫")):
+                m = cand
+                break
+        if m is None:
+            # 两份都没匹配到中文关键字, 退回第一份 (至少能解析出 code/url 结构)
+            m = _POLL_RE.search(raw.decode("utf-8", "ignore"))
         if not m:
             return {"status": "error", "message": "登录接口返回异常, 请刷新重试"}
 
