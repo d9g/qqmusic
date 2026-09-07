@@ -45,6 +45,11 @@ class Comment(Base):
     is_hot = Column(Integer, default=0)  # 0=普通 1=热门
     crawled_at = Column(DateTime, default=now_cst)
 
+    # 水评标记。水评是"打标保留"而非"丢弃":
+    # 过滤规则会持续调优, 丢掉就没法按新规则重算了
+    is_trivial = Column(Integer, default=0, index=True)  # 1=水评
+    trivial_reason = Column(String(20))  # empty / short / system / url
+
     # AI 评分
     ai_score = Column(Integer, default=-1)  # 0-5 星 (-1=未评分)
     ai_label = Column(String(20))  # "口水" / "中等" / "高质量"
@@ -61,6 +66,7 @@ class Comment(Base):
         Index("idx_comments_song_time", "song_id", "comment_time"),
         Index("idx_comments_ai_score", "ai_score", "liked_count"),
         Index("idx_comments_emotion", "ai_emotion", "liked_count"),
+        Index("idx_comments_song_trivial", "song_id", "is_trivial"),
     )
 
 
@@ -75,11 +81,24 @@ class SongCrawlStatus(Base):
     crawl_count = Column(Integer, default=0)
     # QQ 用 pagenum 分页 (不是 offset), 断点记页号
     last_pagenum = Column(Integer, default=0)
+    # 【续传游标】下一个要抓的页号, 即"已连续抓完的边界"。
+    # 每抓完一页就写回, 中途崩溃不会丢进度 —— last_pagenum 只在整轮结束时
+    # 更新, 扛不住中断, 所以另设此列。
+    next_pagenum = Column(Integer, default=0)
     comment_total = Column(Integer, default=0)  # 标称总数
     comments_fetched = Column(Integer, default=0)  # 实际入库条数
     # 1=抓全 (标称总数未超过可翻深度), 0=被服务端深度上限截断
     comments_completed = Column(Integer, default=0)
     comments_completed_at = Column(DateTime)
+    # 本轮为何停下, 便于判断要不要重试:
+    # natural_end  接口返回空页, 真的翻到底了
+    # depth_cap    撞上约 2 万条的服务端深度上限
+    # max_pages    达到调用方指定的页数上限
+    # incremental  增量模式下连续多页无新增, 提前收工
+    # error        异常中断, 下次应从 next_pagenum 续传
+    stop_reason = Column(String(20))
+    # 库内该歌最新评论的时间戳 (秒), 用于判断是否需要增量
+    newest_comment_time = Column(Integer, default=0)
 
     __table_args__ = (
         Index("idx_scs_completed_time", "comments_completed", "last_crawled_at"),

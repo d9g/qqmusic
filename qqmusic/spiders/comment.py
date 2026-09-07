@@ -136,64 +136,100 @@ class CommentSpider(BaseSpider):
         song_id: int,
         max_pages: Optional[int] = None,
         sleep: float = MIN_REQUEST_INTERVAL,
-        on_batch: Optional[Callable[[int, List[Dict]], None]] = None,
+        on_batch: Optional[Callable[[int, List[Dict]], Optional[int]]] = None,
+        start_pagenum: int = 0,
+        stop_after_seen_pages: Optional[int] = None,
     ) -> Dict[str, Any]:
         """
-        翻页抓完整首歌的评论
+        翻页抓评论
 
         :param song_id: QQ songid
-        :param max_pages: 最多翻多少页 (None=不限, 由接口自然返回空为止)
+        :param max_pages: 本次最多翻多少页 (None=不限, 由接口自然返回空为止)
         :param sleep: 页间隔秒数
-        :param on_batch: 每页回调 (pagenum, comments), 便于边抓边入库
+        :param on_batch: 每页回调 (pagenum, comments) -> 本页新增条数。
+               返回值用于增量判断: 连续返回 0 达到 stop_after_seen_pages 时提前收工。
+               不需要增量判断时返回 None 即可。
+        :param start_pagenum: 起始页号, 断点续传时传上次的 next_pagenum
+        :param stop_after_seen_pages: 连续多少页无新增就停。
+               评论按时间倒序返回 (已实测页内与跨页均严格递减),
+               新评论只会插在前面, 所以撞到已抓过的内容即可收工。
+               传 None 表示不做增量判断, 一路翻到底。
         :return: {
-            "song_id", "total", "fetched", "pages", "completed",
-            "hot_comments"
+            "song_id", "total", "fetched", "pages", "start_pagenum",
+            "next_pagenum", "completed", "stop_reason", "hot_comments"
         }
         """
         hot_comments: List[Dict] = []
         fetched = 0
-        pagenum = 0
+        pagenum = start_pagenum
         total = 0
-        completed = False
+        stop_reason = "max_pages"
+        seen_streak = 0
 
         while True:
-            if max_pages is not None and pagenum >= max_pages:
+            if max_pages is not None and (pagenum - start_pagenum) >= max_pages:
+                stop_reason = "max_pages"
                 self.logger.info(f"song {song_id}: 达到 max_pages={max_pages}, 停止")
                 break
 
             result = self.fetch(song_id, pagenum=pagenum)
             total = result["total"]
-            if pagenum == 0:
+            # 热评每页都会带回来且内容相同, 取第一次拿到的即可;
+            # 续传时起始页不是 0, 所以不能只认 pagenum==0
+            if not hot_comments and result["hot_comments"]:
                 hot_comments = result["hot_comments"]
 
             batch = result["comments"]
             if not batch:
-                # 空页 = 已翻到底。注意: 也可能是被服务端深度上限截断,
-                # 两者无法从响应区分, 只能靠 fetched 与 total 的差距判断
-                completed = fetched >= (total or 0)
+                # 空页 = 翻到底。注意: 也可能是被服务端深度上限截断,
+                # 两者从响应上无法区分, 只能靠 total 与深度上限的关系判断
+                stop_reason = "natural_end"
                 break
 
             fetched += len(batch)
+
+            new_count = None
             if on_batch:
-                on_batch(pagenum, batch)
+                new_count = on_batch(pagenum, batch)
 
             pagenum += 1
 
-            if fetched >= PRACTICAL_DEPTH_CAP:
+            # 增量提前收工: 连续 N 页全是已抓过的
+            if stop_after_seen_pages is not None and new_count is not None:
+                if new_count == 0:
+                    seen_streak += 1
+                    if seen_streak >= stop_after_seen_pages:
+                        stop_reason = "incremental"
+                        break
+                else:
+                    seen_streak = 0
+
+            # 深度上限按"绝对页深度"算, 续传时不能只数本轮条数
+            if (start_pagenum + fetched) >= PRACTICAL_DEPTH_CAP:
                 self.logger.warning(
                     f"song {song_id}: 已达可翻深度上限 {PRACTICAL_DEPTH_CAP} 条, "
                     f"标称总数 {total}, 本次未抓全"
                 )
+                stop_reason = "depth_cap"
                 break
 
             if sleep:
                 time.sleep(sleep)
 
+        # 只有"自然翻到底且标称总数在可翻深度内"才算抓全。
+        # 超过深度上限的歌, 即便翻到空页也必然没抓全。
+        completed = 1 if (
+            stop_reason == "natural_end" and total <= PRACTICAL_DEPTH_CAP
+        ) else 0
+
         return {
             "song_id": song_id,
             "total": total,
             "fetched": fetched,
-            "pages": pagenum,
-            "completed": 1 if completed else 0,
+            "pages": pagenum - start_pagenum,
+            "start_pagenum": start_pagenum,
+            "next_pagenum": pagenum,
+            "completed": completed,
+            "stop_reason": stop_reason,
             "hot_comments": hot_comments,
         }

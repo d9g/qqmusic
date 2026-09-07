@@ -4,8 +4,8 @@ import tempfile
 
 import pytest
 
-from qqmusic.utils.helper import clean_content, is_trivial
-from qqmusic.utils.constants import MAX_PAGE_SIZE
+from qqmusic.utils.helper import clean_content, is_trivial, analyze_quality
+from qqmusic.utils.constants import MAX_PAGE_SIZE, INCREMENTAL_STOP_PAGES
 
 
 def test_clean_content_removes_emoji():
@@ -26,10 +26,51 @@ def test_clean_content_drop_topic():
     assert "#话题#" in clean_content("#话题# 内容", drop_topic=False)
 
 
+def test_clean_content_removes_media_placeholder():
+    # 媒体占位符若不去掉, "[图片]" 会被算成 4 个有效字符干扰长度判定
+    assert clean_content("看看[图片]") == "看看"
+    assert clean_content("[表情][视频][音频][动图]") == ""
+
+
 def test_is_trivial():
     assert is_trivial("脸")
     assert is_trivial("")
     assert not is_trivial("这首歌让我想起了很多")
+
+
+def test_analyze_quality_reasons():
+    from qqmusic.utils.helper import analyze_quality
+
+    assert analyze_quality("").reason == "empty"
+    assert analyze_quality("评论审核中").reason == "system"
+    assert analyze_quality("加我vx www.example.com 看片").reason == "url"
+    assert analyze_quality("好听").reason == "short"
+    assert analyze_quality("这首歌让我想起了很多").reason == "ok"
+
+
+def test_analyze_quality_high_like_exempt():
+    # 高赞豁免: 短评但点赞数达到阈值, 应保留
+    from qqmusic.utils.helper import analyze_quality, TRIVIAL_MIN_LIKED_KEEP
+
+    r = analyze_quality("神评", liked_count=TRIVIAL_MIN_LIKED_KEEP)
+    assert not r.is_trivial and r.reason == "ok"
+    # 点赞不够, 依然是水评
+    assert analyze_quality("神评", liked_count=TRIVIAL_MIN_LIKED_KEEP - 1).reason == "short"
+
+
+def test_incremental_stop_pages():
+    # 增量模式连续 N 页无新增即停, 至少容忍 1 次误判
+    assert INCREMENTAL_STOP_PAGES >= 2
+
+
+def test_trivial_model_columns():
+    # 水评是打标保留 (is_trivial + trivial_reason), 断点续传有游标列
+    from qqmusic.storage.models import Comment, SongCrawlStatus
+
+    cols = {c.name for c in Comment.__table__.columns}
+    assert {"raw_content", "is_trivial", "trivial_reason"} <= cols
+    scs_cols = {c.name for c in SongCrawlStatus.__table__.columns}
+    assert {"next_pagenum", "stop_reason", "newest_comment_time"} <= scs_cols
 
 
 def test_page_size_cap():

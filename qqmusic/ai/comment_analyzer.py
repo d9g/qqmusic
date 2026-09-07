@@ -380,11 +380,14 @@ class CommentAnalyzer:
                 backoff *= 2
         return None
 
-    def analyze_pending(self, limit: int = 100, min_liked: int = 0) -> Dict:
+    def analyze_pending(
+        self, limit: int = 100, min_liked: int = 0, skip_trivial: bool = True
+    ) -> Dict:
         """分析未评分评论 (主入口)
         Args:
             limit: 最多分析多少条
             min_liked: 最低点赞数 (0 = 全部, 10 = 至少 10 赞)
+            skip_trivial: 跳过水评 (默认开, 省 LLM token)
         Returns:
             stats: {analyzed, batches, total_tokens}
         """
@@ -409,6 +412,10 @@ class CommentAnalyzer:
             )
             if min_liked > 0:
                 stmt = stmt.where(Comment.liked_count >= min_liked)
+            if skip_trivial:
+                # 水评已入库打标 (is_trivial=1), 分析时默认跳过:
+                # 给"好听""[图片]"这类内容打情感标签既没意义又烧 token
+                stmt = stmt.where(Comment.is_trivial == 0)
             stmt = stmt.order_by(Comment.liked_count.desc()).limit(limit)
             rows = session.execute(stmt).all()
         finally:

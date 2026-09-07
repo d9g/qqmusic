@@ -72,18 +72,43 @@ def init_db():
     _run_migrations()
 
 
+# 老库补列用: 表名 -> [(列名, DDL)]
+_MIGRATIONS = {
+    "comments": [
+        ("ai_emotion", "VARCHAR(30)"),
+        ("ai_emotion_secondary", "VARCHAR(30)"),
+        ("ai_emotion_intensity", "VARCHAR(10)"),
+        ("ai_emotion_keywords", "VARCHAR(200)"),
+        ("is_trivial", "INTEGER DEFAULT 0"),
+        ("trivial_reason", "VARCHAR(20)"),
+    ],
+    "song_crawl_status": [
+        ("next_pagenum", "INTEGER DEFAULT 0"),
+        ("stop_reason", "VARCHAR(20)"),
+        ("newest_comment_time", "INTEGER DEFAULT 0"),
+    ],
+}
+
+
 def _run_migrations():
-    """轻量 ALTER TABLE 迁移 (不引 alembic), 老库补字段用"""
+    """
+    轻量 ALTER TABLE 迁移 (不引 alembic)
+
+    只做"补列", 不做删改: create_all() 负责建新表, 这里负责让
+    升级前就存在的老库跟上新字段, 否则查询会报 no such column。
+    """
     from sqlalchemy import inspect, text
+
     engine = get_engine()
+    insp = inspect(engine)
+    existing_tables = set(insp.get_table_names())
+
     with engine.connect() as conn:
-        cols = {c["name"] for c in inspect(engine).get_columns("comments")}
-        if "ai_emotion" not in cols:
-            for col, ddl in [
-                ("ai_emotion", "VARCHAR(30)"),
-                ("ai_emotion_secondary", "VARCHAR(30)"),
-                ("ai_emotion_intensity", "VARCHAR(10)"),
-                ("ai_emotion_keywords", "VARCHAR(200)"),
-            ]:
-                conn.execute(text(f"ALTER TABLE comments ADD COLUMN {col} {ddl}"))
+        for table, columns in _MIGRATIONS.items():
+            if table not in existing_tables:
+                continue  # 新库, create_all 已建好
+            cols = {c["name"] for c in insp.get_columns(table)}
+            for col, ddl in columns:
+                if col not in cols:
+                    conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {col} {ddl}"))
         conn.commit()

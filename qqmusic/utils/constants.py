@@ -42,3 +42,27 @@ PRACTICAL_DEPTH_CAP = 20000
 
 # 请求间隔下限 (秒)。实测无频率限制, 但保持礼貌
 MIN_REQUEST_INTERVAL = 0.35
+
+# 增量抓取: 连续多少页"全是已抓过的评论"就停止。
+# 评论按时间倒序返回, 新评论只会插在前面, 所以撞到旧评论即可收工。
+# 取 2 而不是 1: 单页可能因为评论被删除而恰好无新增, 容忍一次。
+INCREMENTAL_STOP_PAGES = 2
+
+# ==================== 水评判定阈值 ====================
+# 实测: 375 条样本中短于 6 字的占约 14%, 且其中点赞 >=20 的为 0 条,
+# 说明短评基本无分析价值。
+#
+# 两个值都可用环境变量覆盖, 改完跑 `cli recheck` 即可按新规则重算全库,
+# 不用重新抓取 —— 前提是入库时没把水评丢掉 (默认行为就是不丢)。
+def _int_env(key: str, default: int) -> int:
+    try:
+        return int(os.getenv(key) or default)
+    except ValueError:
+        return default
+
+
+# 短于该长度视为水评
+TRIVIAL_MIN_LEN = _int_env("QQMUSIC_TRIVIAL_MIN_LEN", 6)
+# 高赞豁免: 短评若点赞数达到该值, 视为"神评"保留。
+# 近 700 条样本中触发 0 次, 属保险丝性质, 防止误杀高赞短评。
+TRIVIAL_MIN_LIKED_KEEP = _int_env("QQMUSIC_TRIVIAL_MIN_LIKED_KEEP", 20)
