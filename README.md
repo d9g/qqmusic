@@ -74,13 +74,13 @@ python -m qqmusic.cli serve
 
 ```bash
 # 搜歌, 拿 songid
-python -m qqmusic.cli search 孤勇者
+python -m qqmusic.cli search 关键词
 
 # 抓评论 (预览)
-python -m qqmusic.cli comments 331839675 --pages 5
+python -m qqmusic.cli comments <songid> --pages 5
 
 # 抓评论并入库
-python -m qqmusic.cli comments 331839675 --save
+python -m qqmusic.cli comments <songid> --save
 
 # 看统计
 python -m qqmusic.cli stats
@@ -89,15 +89,15 @@ python -m qqmusic.cli stats
 ### systemd 部署
 
 ```ini
-# /etc/systemd/system/qqmusic.service 示例
+# /etc/systemd/system/qqmusic.service 示例 (路径按实际部署位置替换)
 [Unit]
 Description=qqmusic - QQ music comment service
 After=network.target
 
 [Service]
-WorkingDirectory=/opt/qqmusic
-Environment="DATABASE_URL=sqlite:////opt/qqmusic/data/qqmusic.db"
-ExecStart=/opt/qqmusic/.venv/bin/uvicorn qqmusic.api.app:app --host 127.0.0.1 --port 8020
+WorkingDirectory=<项目目录>
+Environment="DATABASE_URL=sqlite:///<项目目录>/data/qqmusic.db"
+ExecStart=<项目目录>/.venv/bin/uvicorn qqmusic.api.app:app --host 127.0.0.1 --port 8020
 Restart=always
 
 [Install]
