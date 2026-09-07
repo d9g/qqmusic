@@ -469,14 +469,17 @@ const fmtNum = (n) => {
 };
 const singerStr = (s) => (Array.isArray(s) && s.length ? s.map(x => x.name || x).join(' / ') : (typeof s === 'string' ? s : '未知歌手'));
 const esc = (s) => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
-const songPlayUrl = (s) => s.songmid ? `https://y.qq.com/n/ryqq/songDetail/${s.songmid}` : `https://y.qq.com/portal/song.html?songid=${s.songid}`;
+const songPlayUrl = (s) => (s.songmid || s.mid) ? `https://y.qq.com/n/ryqq/songDetail/${s.songmid || s.mid}` : '';
 
-const songActionsHtml = (s) => `
+const songActionsHtml = (s) => {
+  const url = songPlayUrl(s);
+  return `
   <div class="song-actions">
     <button class="btn sm" data-get="${s.songid}">获取评论</button>
     <button class="btn ghost sm" data-viewc="${s.songid}">已抓评论</button>
-    <a class="btn ghost sm" href="${songPlayUrl(s)}" target="_blank" rel="noopener">QQ音乐 ▶</a>
+    ${url ? `<a class="btn ghost sm" href="${url}" target="_blank" rel="noopener">QQ音乐 ▶</a>` : ''}
   </div>`;
+};
 
 function bindSongActions(root) {
   root.querySelectorAll('[data-get]').forEach(b => {
