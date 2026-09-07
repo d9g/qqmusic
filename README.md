@@ -71,8 +71,8 @@ python -m qqmusic.cli comments 331839675 --save
 # 看统计
 python -m qqmusic.cli stats
 
-# 起 API 服务
-python -m qqmusic.cli serve --port 8000
+# 起 API 服务 (默认端口 8020, 避免与其它本地服务冲突)
+python -m qqmusic.cli serve
 ```
 
 ## 环境变量

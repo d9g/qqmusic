@@ -7,7 +7,7 @@
     python -m qqmusic.cli status 331839675
     python -m qqmusic.cli recheck
     python -m qqmusic.cli stats
-    python -m qqmusic.cli serve --port 8000
+    python -m qqmusic.cli serve  # 默认 8020
 """
 import time as _time
 from typing import List, Optional
@@ -332,7 +332,7 @@ def stats():
 @app.command()
 def serve(
     host: str = typer.Option("127.0.0.1", "--host"),
-    port: int = typer.Option(8000, "--port", "-p"),
+    port: int = typer.Option(8020, "--port", "-p"),
     reload: bool = typer.Option(False, "--reload"),
 ):
     """启动 API 服务"""
