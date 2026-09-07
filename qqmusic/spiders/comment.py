@@ -8,6 +8,7 @@ QQ 音乐评论爬虫
 - 热评固定 15 条, 与普通评论在同一响应里返回
 - 评论 ID 是字符串 (66~110 字符), 时间是秒级时间戳
 """
+import os
 import time
 from typing import Dict, Any, List, Optional, Callable
 
@@ -53,6 +54,11 @@ class CommentSpider(BaseSpider):
         self.timeout = timeout
         self.session = requests.Session()
         self.session.headers.update(DEFAULT_HEADERS)
+        # 评论接口对机房 IP 有定向风控 (2026-09-07 实测: 服务器直连 500, 本机 200)。
+        # 被风控时可设 QQMUSIC_PROXY=http://user:pass@host:port 走代理。
+        proxy = os.getenv("QQMUSIC_PROXY")
+        if proxy:
+            self.session.proxies.update({"http": proxy, "https": proxy})
 
     def _request(self, params: Dict[str, Any]) -> Dict[str, Any]:
         resp = self.session.get(
