@@ -293,13 +293,29 @@ def crawl_comment(
         total_saved += inserted
         return unseen
 
-    result = spider.fetch_all(
-        song_id,
-        max_pages=max_pages,
-        on_batch=on_batch,
-        start_pagenum=start_pagenum,
-        stop_after_seen_pages=stop_after,
-    )
+    # 先占位歌曲行: 崩溃/半途失败时 songs 表也有记录, 概览不至于空
+    with session_scope() as s:
+        _ensure_song(s, song_id)
+
+    try:
+        result = spider.fetch_all(
+            song_id,
+            max_pages=max_pages,
+            on_batch=on_batch,
+            start_pagenum=start_pagenum,
+            stop_after_seen_pages=stop_after,
+        )
+    except Exception as e:
+        # QQ 对下架/异常歌曲会直接 HTTP 500, 不能让它炸穿接口;
+        # 记为 error 状态并正常返回, 调度器也不会因此中断
+        logger.error(f"song {song_id}: 抓取异常: {e}")
+        result = {
+            "song_id": song_id, "total": 0, "fetched": 0,
+            "pages": 0, "start_pagenum": start_pagenum,
+            "next_pagenum": start_pagenum,  # 保留游标, 不回退
+            "completed": 0, "stop_reason": "error", "hot_comments": [],
+            "error": str(e),
+        }
 
     # 热评随每次响应一起返回, 单独入库 (可能与普通评论重复, 靠唯一约束去重)
     hot_items = result["hot_comments"]
@@ -362,6 +378,7 @@ def crawl_comment(
         "completed": effective_completed,
         "stop_reason": stop_reason,
         "duration_ms": duration_ms,
+        "error": result.get("error"),
     }
 
 
