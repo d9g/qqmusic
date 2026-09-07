@@ -190,6 +190,7 @@
   <button data-view="comments">评论检索</button>
   <button data-view="emotion">情感分析</button>
   <button data-view="admin">系统管理</button>
+  <button data-view="login" id="navLoginBtn">登录</button>
 </nav>
 
 <main>
@@ -227,16 +228,15 @@
     <h2 class="section-title">浏览 · 发现 <small>QQ 音乐分类歌单 / 榜单 → 歌曲清单 → 一键抓评论</small></h2>
 
     <div class="card">
-      <h3 class="section-title">我的歌单 <small>可选 · 粘贴 QQ 音乐网页 cookie 读取登录用户的歌单</small></h3>
-      <details>
-        <summary style="cursor:pointer; color:var(--accent-d); font-size:13px;">展开登录</summary>
-        <p class="hint" style="margin-top:8px;">浏览器打开 y.qq.com 登录 → F12 → Console 输入 <code>document.cookie</code> → 复制整段粘贴下方。仅存于服务器，不进代码仓库。</p>
-        <textarea class="cookie-box" id="myCookie" placeholder="粘贴 cookie，如 qm_keyst=...; uin=...; p_skey=...; ..."></textarea>
-        <div class="row" style="margin-top:8px;">
-          <button class="btn sm" id="btnMyDiss">读取我的歌单</button>
+      <h3 class="section-title">我的歌单 <small>需要登录后读取</small></h3>
+      <div id="myDissGate"></div>
+      <div id="myDissArea" style="display:none;">
+        <div class="row" style="margin-bottom:8px;">
+          <button class="btn sm" id="btnMyDiss">刷新我的歌单</button>
+          <span class="hint" style="margin:0;" id="myDissHint"></span>
         </div>
         <div id="myDissList"></div>
-      </details>
+      </div>
     </div>
 
     <div class="card">
@@ -353,7 +353,21 @@
 
   <!-- ============ 系统管理 ============ -->
   <section class="view" id="view-admin">
-    <h2 class="section-title">系统管理 <small>水评重算 / AI 情感分析</small></h2>
+    <h2 class="section-title">系统管理 <small>调度器 / 水评重算 / AI 情感分析</small></h2>
+    <div class="card">
+      <h3 class="section-title">后台定时抓取</h3>
+      <p class="hint" style="margin-top:0;">
+        调度器自动保持已入库歌曲的评论最新（默认每 12 小时一轮，最久未更新的优先）。<br/>
+        风控安全节奏：页间隔 0.35 秒、歌曲间隔 3~5 秒随机、单轮最多 30 首 / 500 页，已抓全的歌只走增量（通常 2~3 页即收工）。
+      </p>
+      <div class="row">
+        <button class="btn sm" id="btnSchedRun">立即跑一轮</button>
+        <button class="btn ghost sm" id="btnSchedStop">暂停调度</button>
+        <button class="btn ghost sm" id="btnSchedStart">恢复调度</button>
+        <button class="btn ghost sm" id="btnSchedRefresh">刷新状态</button>
+      </div>
+      <div id="schedStatus" class="result-box"></div>
+    </div>
     <div class="card">
       <h3 class="section-title">水评重算</h3>
       <p class="hint" style="margin-top:0;">调过水评阈值（短于 N 字 / 高赞豁免）后，跑一次即可按新规则全库重算，无需重新抓取。</p>
@@ -371,6 +385,45 @@
       <div id="analyzeResult" class="result-box"></div>
     </div>
   </section>
+
+  <!-- ============ 登录 ============ -->
+  <section class="view" id="view-login">
+    <h2 class="section-title">QQ 音乐登录 <small>扫码或粘贴 cookie，解锁我的歌单等登录功能</small></h2>
+
+    <div class="card" id="loginStateCard" style="display:none;">
+      <h3 class="section-title">当前登录态</h3>
+      <p id="loginStateText" style="margin:0 0 10px;"></p>
+      <button class="btn ghost sm" id="btnLogout">退出登录</button>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">扫码登录 <small>推荐 · QQ 音乐 App / 手机 QQ 扫码</small></h3>
+      <div style="display:flex; gap:24px; flex-wrap:wrap; align-items:flex-start;">
+        <div id="qrBox" style="text-align:center;">
+          <img id="qrImg" alt="登录二维码" style="width:200px; height:200px; border:1px solid var(--border); border-radius:10px; background:#fff;" />
+          <div style="margin-top:6px;"><a style="font-size:12px; color:var(--accent-d); cursor:pointer;" id="qrRefresh">刷新二维码</a></div>
+        </div>
+        <div style="flex:1; min-width:220px;">
+          <p class="hint" style="margin:4px 0;" id="qrStatus">正在生成二维码…</p>
+          <p class="hint" style="margin:4px 0;">
+            1. 打开手机 QQ 音乐 App 或手机 QQ → 扫一扫<br/>
+            2. 扫描左侧二维码并在手机上确认登录<br/>
+            3. 登录态保存在服务器（仅用于调 QQ 接口，不进代码仓库）
+          </p>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">粘贴 cookie 登录 <small>兜底方式</small></h3>
+      <p class="hint" style="margin-top:0;">电脑浏览器打开 y.qq.com 并登录 → F12 → Console 输入 <code>document.cookie</code> → 复制整段粘贴到下方。</p>
+      <textarea class="cookie-box" id="loginCookie" placeholder="粘贴 cookie，如 qm_keyst=...; uin=o...; p_skey=...; ..."></textarea>
+      <div class="row" style="margin-top:8px;">
+        <button class="btn sm" id="btnCookieLogin">登录</button>
+      </div>
+      <div id="cookieLoginMsg" class="msg"></div>
+    </div>
+  </section>
 </main>
 
 <footer>QQ 音乐评论分析服务 · copyright <a href="https://webyoung.cn" target="_blank">webyoung.cn</a></footer>
@@ -385,7 +438,17 @@ const api = async (path, opts = {}) => {
   });
   if (!res.ok) {
     let detail = res.status + ' ' + res.statusText;
-    try { const j = await res.json(); detail = j.detail || JSON.stringify(j); } catch (e) {}
+    let loginRequired = false;
+    try {
+      const j = await res.json();
+      if (typeof j.detail === 'object' && j.detail) {
+        detail = j.detail.message || JSON.stringify(j.detail);
+        loginRequired = !!j.detail.login_required;
+      } else {
+        detail = j.detail || JSON.stringify(j);
+      }
+    } catch (e) {}
+    if (loginRequired) switchView('login');  // 未登录功能直接跳登录页
     throw new Error(detail);
   }
   return res.json();
@@ -442,8 +505,10 @@ function switchView(name) {
   $('view-' + name).classList.add('active');
   if (name === 'overview') loadStats();
   if (name === 'emotion') loadEmotion();
-  if (name === 'browse') loadCategories();
+  if (name === 'browse') { loadCategories(); renderMyDissGate(); }
   if (name === 'ranking') { loadToplists(); loadOurRankings('hot-songs'); }
+  if (name === 'login') renderLoginView();
+  if (name === 'admin') loadSchedStatus();
 }
 document.querySelectorAll('nav button').forEach(b => {
   b.onclick = () => switchView(b.dataset.view);
@@ -737,26 +802,45 @@ $('backPl').onclick = () => {
   $('plArea').style.display = 'block';
 };
 
-// 我的歌单 (登录)
-$('btnMyDiss').onclick = async () => {
-  const cookie = $('myCookie').value.trim();
+// 我的歌单 (登录门禁 + 读取)
+function renderMyDissGate() {
+  const gate = $('myDissGate'), area = $('myDissArea');
+  if (!authState.logged_in) {
+    gate.style.display = 'block';
+    area.style.display = 'none';
+    gate.innerHTML = `
+      <div class="hint" style="margin:0 0 8px;">该功能需要登录 QQ 音乐账号后使用。</div>
+      <button class="btn sm" id="goLoginFromBrowse">前往登录 →</button>`;
+    gate.querySelector('#goLoginFromBrowse').onclick = () => switchView('login');
+  } else {
+    gate.style.display = 'none';
+    area.style.display = 'block';
+    $('myDissHint').textContent = '已登录 ' + (authState.nickname || authState.uin || '');
+    if (!gate.dataset.loaded) { gate.dataset.loaded = '1'; loadMyDiss(); }
+  }
+}
+
+async function loadMyDiss() {
   const box = $('myDissList');
   box.innerHTML = '<div class="empty">读取中…</div>';
   try {
-    const r = await api('/api/v1/browse/my-playlists', { method: 'POST', body: { cookie } });
-    if (!r.playlists.length) { box.innerHTML = '<div class="empty">没有读到歌单（cookie 可能已失效）</div>'; return; }
+    const r = await api('/api/v1/browse/my-playlists', { method: 'POST', body: { cookie: '' } });
+    if (!r.playlists.length) { box.innerHTML = '<div class="empty">没有读到歌单</div>'; return; }
     box.innerHTML = `<div class="hint">共 ${r.count} 个歌单</div>`;
+    const grid = document.createElement('div');
+    grid.className = 'pl-grid';
     r.playlists.forEach(p => {
       const card = document.createElement('div');
       card.className = 'pl-card';
-      card.style.width = '160px';
       const cover = p.cover ? `<img src="${esc(p.cover)}" loading="lazy" />` : '<div style="height:150px;background:#eee;"></div>';
       card.innerHTML = `${cover}<div class="pl-name">${esc(p.name)}</div><div class="pl-meta">${p.song_count} 首</div>`;
       card.onclick = () => loadPlaylist(p.dissid, p.name);
-      box.appendChild(card);
+      grid.appendChild(card);
     });
+    box.appendChild(grid);
   } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
-};
+}
+$('btnMyDiss').onclick = () => loadMyDiss();
 
 // ==================== 排行榜 ====================
 async function loadToplists() {
@@ -848,9 +932,143 @@ async function loadOurRankings(type) {
   } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
 }
 
+// ==================== 登录 ====================
+let authState = { logged_in: false, uin: null, nickname: null };
+
+async function checkAuth() {
+  try {
+    authState = await api('/api/v1/auth/status');
+    const btn = $('navLoginBtn');
+    btn.textContent = authState.logged_in ? ('已登录 · ' + (authState.nickname || authState.uin)) : '登录';
+    return authState;
+  } catch (e) { return authState; }
+}
+
+function renderLoginView() {
+  const card = $('loginStateCard');
+  if (authState.logged_in) {
+    card.style.display = 'block';
+    const at = authState.login_at ? String(authState.login_at).replace('T', ' ').slice(0, 19) : '';
+    const how = authState.method === 'qr' ? '扫码' : (authState.method === 'cookie' ? 'cookie' : '');
+    $('loginStateText').textContent = `${authState.nickname || 'QQ用户'} (uin: ${authState.uin}) · ${how}登录 · ${at}`;
+  } else {
+    card.style.display = 'none';
+  }
+  // 登录页总是展示二维码 (已登录也可换号)
+  newQr();
+}
+
+// ---- 扫码登录 ----
+let qrTimer = null, qrDeadline = 0;
+
+async function newQr() {
+  stopQrPoll();
+  $('qrStatus').textContent = '正在生成二维码…';
+  $('qrImg').src = '';
+  try {
+    const r = await api('/api/v1/auth/qr/new', { method: 'POST' });
+    $('qrImg').src = r.qr_png;
+    qrDeadline = Date.now() + (r.expires_in || 180) * 1000;
+    $('qrStatus').textContent = '请用手机 QQ 音乐 / 手机 QQ 扫码';
+    startQrPoll(r.token);
+  } catch (e) {
+    $('qrStatus').textContent = '二维码生成失败：' + e.message;
+  }
+}
+
+function startQrPoll(token) {
+  qrTimer = setInterval(async () => {
+    if (Date.now() > qrDeadline) {
+      stopQrPoll();
+      $('qrStatus').textContent = '二维码已过期，请点击刷新';
+      return;
+    }
+    try {
+      const r = await api('/api/v1/auth/qr/poll?token=' + encodeURIComponent(token));
+      if (r.status === 'waiting') return;
+      if (r.status === 'scanned') { $('qrStatus').textContent = r.message || '已扫码，请在手机上确认'; return; }
+      stopQrPoll();
+      if (r.status === 'success') {
+        $('qrStatus').textContent = '✅ 登录成功：' + (r.nickname || r.uin);
+        await checkAuth();
+        renderLoginView();
+        renderMyDissGate();
+      } else {
+        $('qrStatus').textContent = (r.message || r.status) + '，请点击刷新';
+      }
+    } catch (e) { /* 网络抖动, 下个周期再试 */ }
+  }, 2000);
+}
+
+function stopQrPoll() {
+  if (qrTimer) { clearInterval(qrTimer); qrTimer = null; }
+}
+
+$('qrRefresh').onclick = () => newQr();
+
+// ---- cookie 登录 ----
+$('btnCookieLogin').onclick = async () => {
+  const cookie = $('loginCookie').value.trim();
+  const msg = $('cookieLoginMsg');
+  if (!cookie) return showMsg(msg, '请粘贴 cookie', 'err');
+  showMsg(msg, '校验中…', 'info');
+  try {
+    const r = await api('/api/v1/auth/cookie', { method: 'POST', body: { cookie } });
+    showMsg(msg, `✅ 登录成功，读到 ${r.playlist_count} 个歌单`, 'ok');
+    $('loginCookie').value = '';
+    await checkAuth();
+    renderLoginView();
+    renderMyDissGate();
+  } catch (e) { showMsg(msg, '❌ ' + e.message, 'err'); }
+};
+
+// ---- 退出 ----
+$('btnLogout').onclick = async () => {
+  try {
+    await api('/api/v1/auth/logout', { method: 'POST' });
+    await checkAuth();
+    renderLoginView();
+    renderMyDissGate();
+    $('qrStatus').textContent = '已退出登录';
+  } catch (e) { alert('退出失败: ' + e.message); }
+};
+
+// ==================== 调度器 ====================
+async function loadSchedStatus() {
+  const box = $('schedStatus');
+  box.className = 'result-box show';
+  box.textContent = '读取中…';
+  try {
+    const r = await api('/api/v1/admin/scheduler/status');
+    const fmt = (t) => t ? String(t).replace('T', ' ').slice(0, 19) : '—';
+    box.textContent =
+`运行中: ${r.running ? '是 (本轮抓取进行中)' : '否'}
+调度线程: ${r.started ? '已启动' : '已停止'}
+上次运行: ${fmt(r.last_run_at)}
+下轮时间: ${fmt(r.next_run_at)}
+配置: 每 ${r.config.interval_hours} 小时 · 单轮 ${r.config.max_songs} 首 / ${r.config.max_pages} 页 · 歌曲间隔 ${r.config.song_gap}s
+${r.last_summary ? '上轮结果: ' + JSON.stringify(r.last_summary.results || []) : '尚未运行过'}`;
+  } catch (e) { box.textContent = '错误: ' + e.message; }
+}
+$('btnSchedRun').onclick = async () => {
+  try {
+    const r = await api('/api/v1/admin/scheduler/run-now', { method: 'POST' });
+    alert(r.message || '已触发');
+    setTimeout(loadSchedStatus, 2000);
+  } catch (e) { alert(e.message); }
+};
+$('btnSchedStop').onclick = async () => {
+  try { await api('/api/v1/admin/scheduler/stop', { method: 'POST' }); loadSchedStatus(); } catch (e) { alert(e.message); }
+};
+$('btnSchedStart').onclick = async () => {
+  try { await api('/api/v1/admin/scheduler/start', { method: 'POST' }); loadSchedStatus(); } catch (e) { alert(e.message); }
+};
+$('btnSchedRefresh').onclick = () => loadSchedStatus();
+
 // ---- 初始化 ----
 checkHealth();
 loadStats();
+checkAuth();
 setInterval(checkHealth, 30000);
 </script>
 </body>

@@ -16,12 +16,13 @@ from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from sqlalchemy import select, func, and_, desc
 
-from ..spiders import CommentSpider, SearchSpider, QQBrowseSpider
+from ..spiders import CommentSpider, SearchSpider, QQBrowseSpider, QQAuthSpider
 from ..storage import get_session, init_db, Song, Comment, SongCrawlStatus
 from ..utils import (
     get_logger, now_cst, clean_content, is_trivial, analyze_quality,
 )
 from ..utils.constants import MAX_PAGE_SIZE, INCREMENTAL_STOP_PAGES, DATA_DIR
+from ..scheduler import get_scheduler
 
 logger = get_logger("qqmusic.api")
 
@@ -62,6 +63,11 @@ app = FastAPI(
 def on_startup():
     init_db()
     logger.info("服务启动, DB 已初始化")
+    sched = get_scheduler()
+    if sched.enabled:
+        sched.start()
+    else:
+        logger.info("调度器已被环境变量禁用 (QQMUSIC_SCHEDULER=0)")
 
 
 @app.middleware("http")
@@ -517,6 +523,160 @@ def analyze_comments(
     )
 
 
+# ==================== 调度器 ====================
+@app.get("/api/v1/admin/scheduler/status", tags=["调度"])
+def scheduler_status():
+    """后台增量抓取调度器状态"""
+    return get_scheduler().status()
+
+
+@app.post("/api/v1/admin/scheduler/start", tags=["调度"])
+def scheduler_start():
+    """启动调度器线程 (随服务自启, 此接口用于手动恢复)"""
+    sched = get_scheduler()
+    sched.enabled = True
+    sched.start()
+    return sched.status()
+
+
+@app.post("/api/v1/admin/scheduler/stop", tags=["调度"])
+def scheduler_stop():
+    """停止调度器线程 (重启服务后会按配置自启)"""
+    get_scheduler().stop()
+    return get_scheduler().status()
+
+
+@app.post("/api/v1/admin/scheduler/run-now", tags=["调度"])
+def scheduler_run_now():
+    """立即触发一轮增量抓取 (不等待下个周期; 进行中则拒绝)"""
+    sched = get_scheduler()
+    if not sched.status()["started"]:
+        sched.start()
+    ok = sched.run_now()
+    if not ok:
+        raise HTTPException(status_code=409, detail="一轮抓取正在进行中")
+    return {"ok": True, "message": "已触发, 结果稍后可在 status 查看"}
+
+
+# ==================== 登录 ====================
+import json as _json
+
+_LOGIN_PATH = os.path.join(DATA_DIR, ".qq_login.json")
+
+
+class CookieBody(BaseModel):
+    cookie: str = ""
+
+
+def _save_login(info: dict) -> None:
+    os.makedirs(DATA_DIR, exist_ok=True)
+    with open(_LOGIN_PATH, "w", encoding="utf-8") as f:
+        _json.dump(info, f, ensure_ascii=False)
+
+
+def _load_login() -> dict:
+    try:
+        with open(_LOGIN_PATH, "r", encoding="utf-8") as f:
+            return _json.load(f)
+    except Exception:
+        return {}
+
+
+def _read_saved_cookie() -> str:
+    try:
+        with open(_COOKIE_PATH, "r", encoding="utf-8") as f:
+            return f.read().strip()
+    except Exception:
+        return ""
+
+
+@app.get("/api/v1/auth/status", tags=["登录"])
+def auth_status():
+    """当前登录态 (是否已保存有效 cookie)"""
+    info = _load_login()
+    cookie = _read_saved_cookie()
+    logged_in = bool(cookie and info.get("uin"))
+    return {
+        "logged_in": logged_in,
+        "uin": info.get("uin"),
+        "nickname": info.get("nickname"),
+        "method": info.get("method"),  # qr / cookie
+        "login_at": info.get("login_at"),
+        "has_cookie": bool(cookie),
+    }
+
+
+@app.post("/api/v1/auth/qr/new", tags=["登录"])
+def auth_qr_new():
+    """生成登录二维码 (base64 PNG), 前端轮询 /auth/qr/poll"""
+    try:
+        return QQAuthSpider().create_qr()
+    except Exception as e:
+        logger.error(f"二维码生成失败: {e}", exc_info=True)
+        raise HTTPException(status_code=502, detail=f"二维码生成失败: {e}")
+
+
+@app.get("/api/v1/auth/qr/poll", tags=["登录"])
+def auth_qr_poll(token: str = Query(..., min_length=8)):
+    """轮询扫码状态。扫码确认成功后自动保存登录态"""
+    r = QQAuthSpider().poll(token)
+    if r.get("status") == "success":
+        cookie = r.pop("cookie")
+        try:
+            with open(_COOKIE_PATH, "w", encoding="utf-8") as f:
+                f.write(cookie)
+        except Exception as e:
+            logger.error(f"cookie 落盘失败: {e}")
+            raise HTTPException(status_code=500, detail="cookie 保存失败")
+        _save_login({
+            "uin": r["uin"],
+            "nickname": r["nickname"],
+            "method": "qr",
+            "login_at": now_cst().isoformat(),
+        })
+        logger.info(f"扫码登录成功: uin={r['uin']}, nickname={r['nickname']}")
+    return r
+
+
+@app.post("/api/v1/auth/cookie", tags=["登录"])
+def auth_cookie_login(payload: CookieBody):
+    """粘贴 QQ 音乐网页 cookie 登录 (扫码不可用时的兜底方式)"""
+    cookie = (payload.cookie or "").strip()
+    if not cookie:
+        raise HTTPException(status_code=400, detail="请粘贴 cookie")
+    try:
+        # 用「我的歌单」接口验证 cookie 有效性 (需要 uin + p_skey)
+        r = QQBrowseSpider().get_my_playlists(cookie)
+    except PermissionError as e:
+        raise HTTPException(status_code=401, detail={"message": str(e), "login_required": True})
+    except Exception as e:
+        raise HTTPException(status_code=502, detail=f"cookie 校验失败: {e}")
+    try:
+        with open(_COOKIE_PATH, "w", encoding="utf-8") as f:
+            f.write(cookie)
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"cookie 保存失败: {e}")
+    _save_login({
+        "uin": r["uin"],
+        "nickname": f"QQ用户{r['uin']}",
+        "method": "cookie",
+        "login_at": now_cst().isoformat(),
+    })
+    logger.info(f"cookie 登录成功: uin={r['uin']}, 歌单 {r['count']} 个")
+    return {"uin": r["uin"], "playlist_count": r["count"]}
+
+
+@app.post("/api/v1/auth/logout", tags=["登录"])
+def auth_logout():
+    """退出登录: 清除服务器上保存的 cookie 与登录信息"""
+    for p in (_COOKIE_PATH, _LOGIN_PATH):
+        try:
+            os.remove(p)
+        except FileNotFoundError:
+            pass
+    return {"ok": True}
+
+
 # ==================== 浏览 / 发现 ====================
 _COOKIE_PATH = os.path.join(DATA_DIR, ".qq_cookie")
 
@@ -572,17 +732,13 @@ def browse_toplist(top_id: int, num: int = Query(50, ge=1, le=100)):
     return r
 
 
-class CookieBody(BaseModel):
-    cookie: str = ""
-
-
 @app.post("/api/v1/browse/my-playlists", tags=["浏览"])
 def browse_my_playlists(payload: CookieBody):
     """
-    用登录用户的 QQ 音乐 cookie 取「我的歌单」。
+    读取登录用户的「我的歌单」。
 
-    安全说明: cookie 仅保存在服务器 data/.qq_cookie, 不进代码仓库; 仅用于本次请求。
-    留空则复用上次保存的 cookie。cookie 失效会返回 401 友好提示。
+    未登录 (无保存的 cookie) 返回 401 + login_required, 前端应跳登录页。
+    安全说明: cookie 仅保存在服务器 data/.qq_cookie, 不进代码仓库。
     """
     cookie = (payload.cookie or "").strip()
     if cookie:
@@ -592,19 +748,31 @@ def browse_my_playlists(payload: CookieBody):
         except Exception:
             pass
     else:
-        try:
-            with open(_COOKIE_PATH, "r", encoding="utf-8") as f:
-                cookie = f.read().strip()
-        except Exception:
-            cookie = ""
+        cookie = _read_saved_cookie()
     if not cookie:
-        raise HTTPException(status_code=400, detail="请提供 QQ 音乐 cookie (首次使用)")
+        raise HTTPException(status_code=401, detail={
+            "message": "未登录, 请先在登录页扫码或粘贴 cookie",
+            "login_required": True,
+        })
     try:
         r = QQBrowseSpider().get_my_playlists(cookie)
     except PermissionError as e:
-        raise HTTPException(status_code=401, detail=str(e))
+        # cookie 过期: 清掉失效登录态, 让前端回登录页
+        auth_logout()
+        raise HTTPException(status_code=401, detail={
+            "message": str(e),
+            "login_required": True,
+        })
     except Exception as e:
         raise HTTPException(status_code=502, detail=f"获取失败: {e}")
+    # 顺手补全登录信息 (粘贴 cookie 走 my-playlists 的旧路径)
+    if not _load_login().get("uin"):
+        _save_login({
+            "uin": r["uin"],
+            "nickname": f"QQ用户{r['uin']}",
+            "method": "cookie",
+            "login_at": now_cst().isoformat(),
+        })
     return r
 
 
