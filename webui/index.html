@@ -1,0 +1,537 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>QQ 音乐评论分析 · qq.d9g.com.cn</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
+<style>
+  :root {
+    --accent: #31c27c;
+    --accent-d: #28a86a;
+    --bg: #f4f6f8;
+    --card: #ffffff;
+    --text: #1f2329;
+    --muted: #8a9099;
+    --border: #e8ebef;
+    --red: #f5605f;
+    --blue: #4a90e2;
+    --amber: #f0a830;
+    --shadow: 0 1px 3px rgba(0,0,0,.06), 0 4px 16px rgba(0,0,0,.04);
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", "PingFang SC",
+      "Hiragino Sans GB", "Microsoft YaHei", sans-serif;
+    background: var(--bg); color: var(--text); font-size: 14px; line-height: 1.6;
+  }
+  header {
+    background: linear-gradient(120deg, #1f2a36, #2b3a4a);
+    color: #fff; padding: 18px 28px; display: flex; align-items: center;
+    justify-content: space-between; flex-wrap: wrap; gap: 12px;
+  }
+  .brand { display: flex; align-items: center; gap: 12px; }
+  .brand .logo {
+    width: 38px; height: 38px; border-radius: 10px; background: var(--accent);
+    display: grid; place-items: center; font-size: 20px; font-weight: 700;
+  }
+  .brand h1 { font-size: 18px; margin: 0; font-weight: 600; }
+  .brand p { margin: 0; font-size: 12px; opacity: .7; }
+  .health-pill {
+    font-size: 12px; padding: 5px 12px; border-radius: 20px;
+    background: rgba(49,194,124,.18); color: #7fe3b0; display: flex; align-items: center; gap: 6px;
+  }
+  .health-pill .dot { width: 8px; height: 8px; border-radius: 50%; background: #7fe3b0; }
+  .health-pill.bad { background: rgba(245,96,95,.18); color: #ffb3b2; }
+  .health-pill.bad .dot { background: #ffb3b2; }
+
+  nav {
+    background: var(--card); border-bottom: 1px solid var(--border);
+    display: flex; gap: 4px; padding: 0 20px; overflow-x: auto; position: sticky; top: 0; z-index: 10;
+  }
+  nav button {
+    background: none; border: none; padding: 14px 18px; font-size: 14px; cursor: pointer;
+    color: var(--muted); border-bottom: 2px solid transparent; white-space: nowrap; font-family: inherit;
+  }
+  nav button:hover { color: var(--text); }
+  nav button.active { color: var(--accent-d); border-bottom-color: var(--accent); font-weight: 600; }
+
+  main { max-width: 1080px; margin: 0 auto; padding: 24px 20px 60px; }
+  .view { display: none; }
+  .view.active { display: block; animation: fade .25s ease; }
+  @keyframes fade { from { opacity: 0; transform: translateY(6px);} to {opacity:1; transform:none;} }
+
+  .section-title { font-size: 16px; font-weight: 600; margin: 0 0 14px; display: flex; align-items: center; gap: 8px; }
+  .section-title small { font-weight: 400; color: var(--muted); font-size: 12px; }
+
+  .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px; margin-bottom: 22px; }
+  .stat-card { background: var(--card); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
+  .stat-card .num { font-size: 28px; font-weight: 700; color: var(--accent-d); line-height: 1.1; }
+  .stat-card .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
+  .stat-card .sub { font-size: 11px; color: #b5bac1; margin-top: 2px; }
+
+  .card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: var(--shadow); margin-bottom: 18px; }
+  .row { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .row.tight { gap: 8px; }
+  input[type=text], input[type=number], select {
+    padding: 9px 12px; border: 1px solid var(--border); border-radius: 8px; font-size: 14px;
+    font-family: inherit; background: #fff; color: var(--text); min-width: 0;
+  }
+  input:focus, select:focus { outline: none; border-color: var(--accent); }
+  input[type=text] { flex: 1; min-width: 180px; }
+  .btn {
+    padding: 9px 16px; border: none; border-radius: 8px; background: var(--accent); color: #fff;
+    font-size: 14px; cursor: pointer; font-family: inherit; font-weight: 500; transition: .15s;
+  }
+  .btn:hover { background: var(--accent-d); }
+  .btn:disabled { opacity: .5; cursor: not-allowed; }
+  .btn.ghost { background: #fff; color: var(--text); border: 1px solid var(--border); }
+  .btn.ghost:hover { border-color: var(--accent); color: var(--accent-d); }
+  .btn.sm { padding: 5px 10px; font-size: 12px; }
+
+  .song-item, .comment-item {
+    border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; margin-top: 10px;
+    display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap;
+  }
+  .song-item .meta { min-width: 0; }
+  .song-item .name { font-weight: 600; }
+  .song-item .singer { font-size: 12px; color: var(--muted); }
+  .song-actions { display: flex; gap: 6px; flex-wrap: wrap; }
+
+  .comment-item { align-items: flex-start; display: block; }
+  .comment-head { display: flex; align-items: center; gap: 8px; margin-bottom: 4px; flex-wrap: wrap; }
+  .comment-nick { font-weight: 600; font-size: 13px; }
+  .comment-like { color: var(--red); font-size: 12px; }
+  .comment-time { color: var(--muted); font-size: 12px; }
+  .comment-body { white-space: pre-wrap; word-break: break-word; }
+  .badge { font-size: 11px; padding: 2px 7px; border-radius: 4px; font-weight: 500; }
+  .badge.hot { background: #fdecec; color: var(--red); }
+  .badge.trivial { background: #f0f1f3; color: var(--muted); }
+  .badge.emotion { background: #eaf6ff; color: var(--blue); }
+
+  .result-box {
+    margin-top: 14px; background: #0f1419; color: #c8d2dc; border-radius: 10px; padding: 14px;
+    font-family: "SFMono-Regular", Consolas, monospace; font-size: 12.5px; white-space: pre-wrap;
+    word-break: break-word; max-height: 360px; overflow: auto; display: none;
+  }
+  .result-box.show { display: block; }
+  .msg { margin-top: 12px; padding: 10px 14px; border-radius: 8px; font-size: 13px; display: none; }
+  .msg.show { display: block; }
+  .msg.ok { background: #eafaf1; color: #1f8a52; }
+  .msg.err { background: #fdecec; color: #c0392b; }
+  .msg.info { background: #eaf6ff; color: #2b6cb0; }
+
+  .filters { display: grid; grid-template-columns: repeat(auto-fit, minmax(160px,1fr)); gap: 10px; align-items: end; }
+  .filters label { display: block; font-size: 12px; color: var(--muted); margin-bottom: 4px; }
+  .check { display: flex; align-items: center; gap: 6px; font-size: 13px; color: var(--text); }
+  .check input { width: 16px; height: 16px; }
+
+  .chart-wrap { max-width: 640px; margin: 0 auto; }
+  table.emotion-tbl { width: 100%; border-collapse: collapse; margin-top: 16px; font-size: 13px; }
+  table.emotion-tbl th, table.emotion-tbl td { text-align: left; padding: 8px 10px; border-bottom: 1px solid var(--border); }
+  table.emotion-tbl th { color: var(--muted); font-weight: 500; }
+
+  .pager { display: flex; gap: 8px; align-items: center; justify-content: center; margin-top: 16px; }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 8px; line-height: 1.5; }
+  footer { text-align: center; color: var(--muted); font-size: 12px; padding: 20px; }
+  footer a { color: var(--accent-d); text-decoration: none; }
+  .empty { text-align: center; color: var(--muted); padding: 30px; font-size: 13px; }
+  .loading { opacity: .6; pointer-events: none; }
+</style>
+</head>
+<body>
+<header>
+  <div class="brand">
+    <div class="logo">Q</div>
+    <div>
+      <h1>QQ 音乐评论分析</h1>
+      <p>评论抓取 · 检索 · AI 情感分析 · qq.d9g.com.cn</p>
+    </div>
+  </div>
+  <div class="health-pill" id="healthPill"><span class="dot"></span><span id="healthText">检测中…</span></div>
+</header>
+
+<nav>
+  <button data-view="overview" class="active">概览</button>
+  <button data-view="crawl">搜歌 & 抓取</button>
+  <button data-view="comments">评论检索</button>
+  <button data-view="emotion">情感分析</button>
+  <button data-view="admin">系统管理</button>
+</nav>
+
+<main>
+  <!-- ============ 概览 ============ -->
+  <section class="view active" id="view-overview">
+    <h2 class="section-title">数据概览 <small>实时统计已入库内容</small></h2>
+    <div class="stats-grid" id="statsGrid">
+      <div class="stat-card"><div class="num" id="st-songs">–</div><div class="lbl">歌曲</div></div>
+      <div class="stat-card"><div class="num" id="st-comments">–</div><div class="lbl">评论总数</div></div>
+      <div class="stat-card"><div class="num" id="st-valid">–</div><div class="lbl">有效评论</div><div class="sub" id="st-trivial"></div></div>
+      <div class="stat-card"><div class="num" id="st-hot">–</div><div class="lbl">热评</div></div>
+      <div class="stat-card"><div class="num" id="st-analyzed">–</div><div class="lbl">AI 已分析</div></div>
+    </div>
+    <div class="card">
+      <h3 class="section-title">系统能力</h3>
+      <div class="row" style="gap:18px; flex-wrap:wrap;">
+        <div style="flex:1; min-width:220px;">
+          <p style="margin:0 0 6px; font-weight:600;">🔍 评论抓取</p>
+          <p class="hint" style="margin:0;">无需登录，单歌可抓约 2 万条；支持断点续传与增量更新，崩溃不丢进度。</p>
+        </div>
+        <div style="flex:1; min-width:220px;">
+          <p style="margin:0 0 6px; font-weight:600;">🏷️ 水评打标</p>
+          <p class="hint" style="margin:0;">短评/空文本/广告/系统占位自动打标保留，规则可调，重算免重新抓取。</p>
+        </div>
+        <div style="flex:1; min-width:220px;">
+          <p style="margin:0 0 6px; font-weight:600;">🧠 AI 情感分析</p>
+          <p class="hint" style="margin:0;">26 类情感标签体系，聚焦高赞与高质量评论，省 LLM token。</p>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ============ 搜歌 & 抓取 ============ -->
+  <section class="view" id="view-crawl">
+    <h2 class="section-title">搜歌 & 抓取 <small>搜索歌曲 → 一键抓取评论入库</small></h2>
+    <div class="card">
+      <div class="row">
+        <input type="text" id="kw" placeholder="输入歌名或歌手，如：孤勇者" />
+        <button class="btn" id="btnSearch">搜索</button>
+      </div>
+      <div class="hint">搜索返回 songid，点击「抓取」即按 auto 模式入库（已抓全的歌自动走增量）。</div>
+      <div id="songList"></div>
+    </div>
+
+    <div class="card">
+      <h3 class="section-title">按 songid 直接抓取</h3>
+      <div class="row">
+        <input type="number" id="sid" placeholder="songid" style="width:160px;" />
+        <select id="mode">
+          <option value="auto">auto（自动判断）</option>
+          <option value="full">full（续传补完）</option>
+          <option value="incremental">incremental（增量）</option>
+          <option value="restart">restart（从头）</option>
+        </select>
+        <button class="btn" id="btnCrawl">抓取</button>
+        <button class="btn ghost" id="btnStatus">查状态</button>
+      </div>
+      <div id="crawlResult" class="result-box"></div>
+      <div id="crawlMsg" class="msg"></div>
+    </div>
+  </section>
+
+  <!-- ============ 评论检索 ============ -->
+  <section class="view" id="view-comments">
+    <h2 class="section-title">评论检索 <small>按关键词 / 歌曲 / 情感 / 点赞筛选</small></h2>
+    <div class="card">
+      <div class="filters">
+        <div><label>关键词</label><input type="text" id="f-kw" placeholder="评论正文" /></div>
+        <div><label>songid</label><input type="number" id="f-sid" placeholder="可选" /></div>
+        <div><label>情感标签</label><input type="text" id="f-emotion" placeholder="如：怀旧" /></div>
+        <div><label>最少点赞</label><input type="number" id="f-like" value="0" style="width:100px;" /></div>
+        <div><label>数量</label>
+          <select id="f-limit">
+            <option>20</option><option selected>50</option><option>100</option><option>200</option>
+          </select>
+        </div>
+        <div style="display:flex; align-items:center;">
+          <label class="check"><input type="checkbox" id="f-excl" checked /> 排除水评</label>
+        </div>
+        <div style="display:flex; gap:8px; align-items:flex-end;">
+          <button class="btn" id="btnSearchC">检索</button>
+        </div>
+      </div>
+    </div>
+    <div id="commentList"></div>
+    <div class="pager" id="pager" style="display:none;">
+      <button class="btn ghost sm" id="pgPrev">上一页</button>
+      <span id="pgInfo" style="font-size:13px; color:var(--muted);"></span>
+      <button class="btn ghost sm" id="pgNext">下一页</button>
+    </div>
+  </section>
+
+  <!-- ============ 情感分析 ============ -->
+  <section class="view" id="view-emotion">
+    <h2 class="section-title">情感分布 <small>已分析评论的情感标签占比</small></h2>
+    <div class="card">
+      <div class="row">
+        <input type="number" id="e-sid" placeholder="按 songid 过滤（可选）" style="width:220px;" />
+        <button class="btn" id="btnEmotion">加载分布</button>
+      </div>
+      <div class="chart-wrap"><canvas id="emotionChart"></canvas></div>
+      <div id="emotionEmpty" class="empty">暂无 AI 分析数据，请先在「系统管理」运行 AI 分析。</div>
+      <table class="emotion-tbl" id="emotionTbl" style="display:none;">
+        <thead><tr><th>情感标签</th><th>数量</th><th>占比</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ============ 系统管理 ============ -->
+  <section class="view" id="view-admin">
+    <h2 class="section-title">系统管理 <small>水评重算 / AI 情感分析</small></h2>
+    <div class="card">
+      <h3 class="section-title">水评重算</h3>
+      <p class="hint" style="margin-top:0;">调过水评阈值（短于 N 字 / 高赞豁免）后，跑一次即可按新规则全库重算，无需重新抓取。</p>
+      <button class="btn" id="btnRecheck">重新计算水评标</button>
+      <div id="recheckResult" class="result-box"></div>
+    </div>
+    <div class="card">
+      <h3 class="section-title">AI 情感分析</h3>
+      <p class="hint" style="margin-top:0;">对未打标的评论跑大模型分析（<b>会消耗 LLM token</b>）。默认跳过水评、优先高赞高质量评论。</p>
+      <div class="row">
+        <input type="number" id="a-limit" value="100" style="width:120px;" title="处理条数" />
+        <input type="number" id="a-like" value="0" style="width:120px;" title="最低点赞" />
+        <button class="btn" id="btnAnalyze">运行分析</button>
+      </div>
+      <div id="analyzeResult" class="result-box"></div>
+    </div>
+  </section>
+</main>
+
+<footer>QQ 音乐评论分析服务 · copyright <a href="https://webyoung.cn" target="_blank">webyoung.cn</a></footer>
+
+<script>
+const $ = (id) => document.getElementById(id);
+const api = async (path, opts = {}) => {
+  const res = await fetch(path, {
+    method: opts.method || 'GET',
+    headers: opts.body ? { 'Content-Type': 'application/json' } : undefined,
+    body: opts.body ? JSON.stringify(opts.body) : undefined,
+  });
+  if (!res.ok) {
+    let detail = res.status + ' ' + res.statusText;
+    try { const j = await res.json(); detail = j.detail || JSON.stringify(j); } catch (e) {}
+    throw new Error(detail);
+  }
+  return res.json();
+};
+const showMsg = (el, text, type) => {
+  el.textContent = text; el.className = 'msg show ' + type;
+};
+const fmtTime = (sec) => {
+  if (!sec) return '';
+  const d = new Date(sec * 1000);
+  return d.toLocaleString('zh-CN', { hour12: false });
+};
+const singerStr = (s) => (Array.isArray(s) && s.length ? s.map(x => x.name).join(' / ') : '未知歌手');
+
+// ---- 导航 ----
+document.querySelectorAll('nav button').forEach(b => {
+  b.onclick = () => {
+    document.querySelectorAll('nav button').forEach(x => x.classList.remove('active'));
+    document.querySelectorAll('.view').forEach(x => x.classList.remove('active'));
+    b.classList.add('active');
+    $('view-' + b.dataset.view).classList.add('active');
+    if (b.dataset.view === 'overview') loadStats();
+    if (b.dataset.view === 'emotion') loadEmotion();
+  };
+});
+
+// ---- 健康检查 ----
+async function checkHealth() {
+  try {
+    const h = await api('/health');
+    $('healthText').textContent = '服务正常 · ' + h.time;
+    $('healthPill').classList.remove('bad');
+  } catch (e) {
+    $('healthText').textContent = '服务异常';
+    $('healthPill').classList.add('bad');
+  }
+}
+
+// ---- 概览 ----
+async function loadStats() {
+  try {
+    const s = await api('/api/v1/stats');
+    $('st-songs').textContent = s.songs;
+    $('st-comments').textContent = s.comments;
+    $('st-valid').textContent = s.valid_comments;
+    $('st-trivial').textContent = '水评 ' + s.trivial_comments;
+    $('st-hot').textContent = s.hot_comments;
+    $('st-analyzed').textContent = s.analyzed;
+  } catch (e) { console.error(e); }
+}
+
+// ---- 搜索 ----
+$('btnSearch').onclick = async () => {
+  const kw = $('kw').value.trim();
+  if (!kw) return;
+  const box = $('songList'); box.innerHTML = '<div class="empty">搜索中…</div>';
+  try {
+    const r = await api('/api/v1/search?keyword=' + encodeURIComponent(kw) + '&limit=10');
+    if (!r.songs || !r.songs.length) { box.innerHTML = '<div class="empty">未找到相关歌曲</div>'; return; }
+    box.innerHTML = '';
+    r.songs.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'song-item';
+      const dur = s.duration ? Math.floor(s.duration / 60) + ':' + String(s.duration % 60).padStart(2, '0') : '';
+      div.innerHTML = `
+        <div class="meta">
+          <div class="name">${esc(s.name || '未知')}</div>
+          <div class="singer">${esc(singerStr(s.singer))} ${dur ? '· ' + dur : ''}</div>
+        </div>
+        <div class="song-actions">
+          <button class="btn sm" data-id="${s.id}">抓取</button>
+          <button class="btn ghost sm" data-id="${s.id}" data-act="status">状态</button>
+        </div>`;
+      div.querySelector('[data-act="status"]').onclick = () => showStatus(s.id);
+      div.querySelector('.btn:not([data-act])').onclick = () => crawl(s.id, 'auto');
+      box.appendChild(div);
+    });
+  } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
+};
+
+// ---- 抓取 ----
+async function crawl(id, mode) {
+  const box = $('crawlResult'); const msg = $('crawlMsg');
+  box.className = 'result-box show loading'; msg.className = 'msg';
+  try {
+    const r = await api('/api/v1/crawl/comment/' + id + '?mode=' + mode, { method: 'POST' });
+    box.classList.remove('loading');
+    box.textContent = JSON.stringify(r, null, 2);
+    showMsg(msg, `✅ 抓取完成：标称 ${r.total} 条，新增 ${r.saved} 条，${r.pages} 页，模式 ${r.mode}，原因 ${r.stop_reason}`, 'ok');
+    loadStats();
+  } catch (e) {
+    box.classList.remove('loading');
+    box.textContent = '';
+    showMsg(msg, '❌ ' + e.message, 'err');
+  }
+}
+$('btnCrawl').onclick = () => {
+  const id = $('sid').value.trim();
+  if (!id) return showMsg($('crawlMsg'), '请输入 songid', 'err');
+  crawl(id, $('mode').value);
+};
+async function showStatus(id) {
+  const box = $('crawlResult'); const msg = $('crawlMsg');
+  box.className = 'result-box show loading'; msg.className = 'msg';
+  try {
+    const r = await api('/api/v1/crawl/status/' + id);
+    box.classList.remove('loading');
+    box.textContent = JSON.stringify(r, null, 2);
+    if (r.crawled) showMsg(msg, `已抓过：入库 ${r.comments_fetched} 条（水评 ${r.trivial_fetched}），下次 auto 走 ${r.next_mode}`, 'info');
+    else showMsg(msg, '该 songid 尚未抓取', 'info');
+  } catch (e) { box.classList.remove('loading'); showMsg(msg, '❌ ' + e.message, 'err'); }
+}
+$('btnStatus').onclick = () => {
+  const id = $('sid').value.trim();
+  if (!id) return showMsg($('crawlMsg'), '请输入 songid', 'err');
+  showStatus(id);
+};
+
+// ---- 评论检索 ----
+let curOffset = 0, curTotal = 0, curLimit = 50;
+async function searchComments(reset) {
+  if (reset) curOffset = 0;
+  curLimit = parseInt($('f-limit').value);
+  const p = new URLSearchParams();
+  if ($('f-kw').value.trim()) p.set('keyword', $('f-kw').value.trim());
+  if ($('f-sid').value.trim()) p.set('song_id', $('f-sid').value.trim());
+  if ($('f-emotion').value.trim()) p.set('emotion', $('f-emotion').value.trim());
+  if ($('f-like').value) p.set('min_liked', $('f-like').value);
+  p.set('exclude_trivial', $('f-excl').checked);
+  p.set('limit', curLimit);
+  p.set('offset', curOffset);
+  const box = $('commentList');
+  box.innerHTML = '<div class="empty">检索中…</div>';
+  try {
+    const r = await api('/api/v1/comments/search?' + p.toString());
+    curTotal = r.total;
+    if (!r.items.length) { box.innerHTML = '<div class="empty">没有匹配的评论</div>'; $('pager').style.display = 'none'; return; }
+    box.innerHTML = '';
+    r.items.forEach(c => {
+      const div = document.createElement('div');
+      div.className = 'comment-item';
+      const badges = [];
+      if (c.is_hot) badges.push('<span class="badge hot">热评</span>');
+      if (c.is_trivial) badges.push('<span class="badge trivial">水评</span>');
+      if (c.ai_emotion) badges.push(`<span class="badge emotion">${esc(c.ai_emotion)}</span>`);
+      div.innerHTML = `
+        <div class="comment-head">
+          <span class="comment-nick">${esc(c.user_nickname || '匿名')}</span>
+          ${badges.join(' ')}
+          <span class="comment-like">♥ ${c.liked_count || 0}</span>
+          <span class="comment-time">${esc(fmtTime(c.comment_time))}</span>
+        </div>
+        <div class="comment-body">${esc(c.content || '')}</div>`;
+      box.appendChild(div);
+    });
+    $('pager').style.display = 'flex';
+    $('pgInfo').textContent = `第 ${curOffset + 1}-${curOffset + r.items.length} / 共 ${curTotal} 条`;
+    $('pgPrev').disabled = curOffset <= 0;
+    $('pgNext').disabled = curOffset + curLimit >= curTotal;
+  } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
+}
+$('btnSearchC').onclick = () => searchComments(true);
+$('pgPrev').onclick = () => { if (curOffset >= curLimit) { curOffset -= curLimit; searchComments(false); } };
+$('pgNext').onclick = () => { if (curOffset + curLimit < curTotal) { curOffset += curLimit; searchComments(false); } };
+
+// ---- 情感分析 ----
+let emotionChart = null;
+async function loadEmotion() {
+  const sid = $('e-sid').value.trim();
+  const p = new URLSearchParams();
+  if (sid) p.set('song_id', sid);
+  try {
+    const r = await api('/api/v1/comments/emotions?' + p.toString());
+    const items = (r.items || []).filter(x => x.emotion).sort((a, b) => b.count - a.count);
+    if (!items.length) {
+      $('emotionEmpty').style.display = 'block';
+      $('emotionTbl').style.display = 'none';
+      if (emotionChart) { emotionChart.destroy(); emotionChart = null; }
+      return;
+    }
+    $('emotionEmpty').style.display = 'none';
+    $('emotionTbl').style.display = 'table';
+    const tbody = $('emotionTbl').querySelector('tbody');
+    const total = items.reduce((a, b) => a + b.count, 0);
+    tbody.innerHTML = items.map(x => `<tr><td>${esc(x.emotion)}</td><td>${x.count}</td><td>${(x.count/total*100).toFixed(1)}%</td></tr>`).join('');
+    const ctx = $('emotionChart');
+    const palette = ['#31c27c','#4a90e2','#f0a830','#f5605f','#9b59b6','#1ab9c4','#e67e22','#2ecc71','#7f8c8d','#34495e'];
+    const data = {
+      labels: items.map(x => x.emotion),
+      datasets: [{ data: items.map(x => x.count), backgroundColor: items.map((_,i)=>palette[i%palette.length]) }]
+    };
+    if (emotionChart) emotionChart.destroy();
+    emotionChart = new Chart(ctx, { type: 'bar', data, options: {
+      indexAxis: 'y', responsive: true,
+      plugins: { legend: { display: false } },
+      scales: { x: { beginAtZero: true, ticks: { precision: 0 } } }
+    }});
+  } catch (e) { $('emotionEmpty').style.display = 'block'; $('emotionEmpty').textContent = '加载失败：' + e.message; }
+}
+$('btnEmotion').onclick = loadEmotion;
+
+// ---- 管理 ----
+$('btnRecheck').onclick = async () => {
+  const box = $('recheckResult'); box.className = 'result-box show loading';
+  try {
+    const r = await api('/api/v1/admin/comments/recheck', { method: 'POST' });
+    box.classList.remove('loading');
+    box.textContent = JSON.stringify(r, null, 2);
+    loadStats();
+  } catch (e) { box.classList.remove('loading'); box.textContent = '错误：' + e.message; }
+};
+$('btnAnalyze').onclick = async () => {
+  const box = $('analyzeResult'); box.className = 'result-box show loading';
+  const p = new URLSearchParams({ limit: $('a-limit').value, min_liked: $('a-like').value });
+  try {
+    const r = await api('/api/v1/admin/comments/analyze?' + p.toString(), { method: 'POST' });
+    box.classList.remove('loading');
+    box.textContent = JSON.stringify(r, null, 2);
+    loadStats();
+  } catch (e) { box.classList.remove('loading'); box.textContent = '错误：' + e.message; }
+};
+
+// ---- 工具 ----
+function esc(s) {
+  return String(s == null ? '' : s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+}
+
+// ---- 初始化 ----
+checkHealth();
+loadStats();
+setInterval(checkHealth, 30000);
+</script>
+</body>
+</html>
