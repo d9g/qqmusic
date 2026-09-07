@@ -66,6 +66,8 @@
 
   .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px,1fr)); gap: 14px; margin-bottom: 22px; }
   .stat-card { background: var(--card); border-radius: 12px; padding: 18px; box-shadow: var(--shadow); }
+  .stat-card.clickable { cursor: pointer; transition: transform .12s, box-shadow .12s; }
+  .stat-card.clickable:hover { transform: translateY(-2px); box-shadow: 0 6px 18px rgba(0,0,0,.14); border: 1px solid var(--accent); }
   .stat-card .num { font-size: 28px; font-weight: 700; color: var(--accent-d); line-height: 1.1; }
   .stat-card .lbl { font-size: 12px; color: var(--muted); margin-top: 4px; }
   .stat-card .sub { font-size: 11px; color: #b5bac1; margin-top: 2px; }
@@ -198,11 +200,15 @@
   <section class="view active" id="view-overview">
     <h2 class="section-title">数据概览 <small>实时统计已入库内容</small></h2>
     <div class="stats-grid" id="statsGrid">
-      <div class="stat-card"><div class="num" id="st-songs">–</div><div class="lbl">歌曲</div></div>
-      <div class="stat-card"><div class="num" id="st-comments">–</div><div class="lbl">评论总数</div></div>
-      <div class="stat-card"><div class="num" id="st-valid">–</div><div class="lbl">有效评论</div><div class="sub" id="st-trivial"></div></div>
-      <div class="stat-card"><div class="num" id="st-hot">–</div><div class="lbl">热评</div></div>
-      <div class="stat-card"><div class="num" id="st-analyzed">–</div><div class="lbl">AI 已分析</div></div>
+      <div class="stat-card clickable" data-goto="ranking" title="查看热门歌曲"><div class="num" id="st-songs">–</div><div class="lbl">歌曲 → 排行榜</div></div>
+      <div class="stat-card clickable" data-goto="comments" data-full="1" title="查看全部评论"><div class="num" id="st-comments">–</div><div class="lbl">评论总数 → 评论检索</div></div>
+      <div class="stat-card clickable" data-goto="comments" title="查看有效评论（排除水评）"><div class="num" id="st-valid">–</div><div class="lbl">有效评论 → 评论检索</div><div class="sub" id="st-trivial"></div></div>
+      <div class="stat-card clickable" data-goto="comments" data-hot="1" title="查看热评（高赞）"><div class="num" id="st-hot">–</div><div class="lbl">热评 → 评论检索</div></div>
+      <div class="stat-card clickable" data-goto="emotion" title="查看情感分布"><div class="num" id="st-analyzed">–</div><div class="lbl">AI 已分析 → 情感分析</div></div>
+    </div>
+    <div class="card" style="margin-top:14px;">
+      <h3 class="section-title">热门歌曲 TOP 10 <small>按入库评论数 · 点击查看已抓评论 / 跳转 QQ 音乐</small></h3>
+      <div id="ovHotSongs"><div class="empty">加载中…</div></div>
     </div>
     <div class="card">
       <h3 class="section-title">系统能力</h3>
@@ -540,6 +546,55 @@ async function loadStats() {
     $('st-hot').textContent = s.hot_comments;
     $('st-analyzed').textContent = s.analyzed;
   } catch (e) { console.error(e); }
+  loadOvHotSongs();
+}
+
+// 统计卡片 -> 本地页面的跳转 (评论总数含水评, 有效评论排除水评, 热评取高赞)
+document.querySelectorAll('.stat-card.clickable').forEach(card => {
+  card.onclick = () => {
+    const view = card.dataset.goto;
+    if (view === 'comments') {
+      $('f-kw').value = '';
+      $('f-sid').value = '';
+      $('f-emotion').value = '';
+      $('f-like').value = 0;
+      if (card.dataset.full) $('f-excl').checked = false;      // 全部评论
+      else if (card.dataset.hot) { $('f-excl').checked = true; $('f-like').value = 20; }  // 热评
+      else $('f-excl').checked = true;                          // 有效评论
+      switchView('comments');
+      searchComments(true);
+    } else if (view === 'ranking') {
+      switchView('ranking');
+    } else if (view === 'emotion') {
+      switchView('emotion');
+    }
+  };
+});
+
+// 概览热门歌曲 TOP10: 本地链接(已抓评论) + QQ 音乐播放链接
+async function loadOvHotSongs() {
+  const box = $('ovHotSongs');
+  if (!box) return;
+  try {
+    const r = await api('/api/v1/rankings/hot-songs?limit=10');
+    if (!r.songs || !r.songs.length) {
+      box.innerHTML = '<div class="empty">暂无数据，先去「搜歌」或「浏览」获取几首歌的评论吧</div>';
+      return;
+    }
+    box.innerHTML = '';
+    r.songs.forEach(s => {
+      const div = document.createElement('div');
+      div.className = 'song-item';
+      div.innerHTML = `
+        <div class="meta">
+          <div class="name">${s.rank}. ${esc(s.name || '未知')}</div>
+          <div class="singer">${esc(singerStr(s.singer))} · 评论 ${fmtNum(s.comment_total)} · 赞 ${fmtNum(s.liked_total)}</div>
+        </div>
+        ${songActionsHtml({ songid: s.id, songmid: s.mid })}`;
+      box.appendChild(div);
+    });
+    bindSongActions(box);
+  } catch (e) { box.innerHTML = '<div class="msg err show">' + esc(e.message) + '</div>'; }
 }
 
 // ---- 搜索 ----
