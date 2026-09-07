@@ -66,6 +66,10 @@ def _decode_nick(s: str) -> str:
 class QQAuthSpider(BaseSpider):
     name = "auth"
 
+    def __init__(self, timeout: int = 15):
+        super().__init__()
+        self.timeout = timeout
+
     # token -> {"session", "qrsig", "created", "done"}
     _sessions: Dict[str, dict] = {}
     _lock = threading.Lock()
